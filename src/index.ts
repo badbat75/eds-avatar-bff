@@ -9,6 +9,10 @@ import healthRoutes from './routes/health';
 
 const app = express();
 
+// Configure trust proxy - needed when behind reverse proxy (nginx, etc.)
+// This allows express-rate-limit to correctly identify users via X-Forwarded-For header
+app.set('trust proxy', true);
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
