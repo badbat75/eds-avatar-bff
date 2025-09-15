@@ -11,7 +11,8 @@ const app = express();
 
 // Configure trust proxy - needed when behind reverse proxy (nginx, etc.)
 // This allows express-rate-limit to correctly identify users via X-Forwarded-For header
-app.set('trust proxy', true);
+// Only trust proxies on localhost/loopback to prevent IP spoofing
+app.set('trust proxy', 'loopback');
 
 // Security middleware
 app.use(helmet({
