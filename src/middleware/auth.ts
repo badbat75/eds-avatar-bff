@@ -55,25 +55,30 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
     algorithms: config.jwtVerifyAlgorithms as jwt.Algorithm[]
   }, (err, decoded) => {
     if (err) {
-      return res.status(403).json({
+      res.status(403).json({
         error: 'Forbidden',
         message: `Token validation failed: ${err.message}`
       });
+      return;
     }
 
     const payload = decoded as JwtPayload;
 
     // Validate token structure
     if (!payload.sub) {
-      return res.status(403).json({
+      res.status(403).json({
         error: 'Forbidden',
         message: 'Token validation failed: Invalid token payload - missing subject'
       });
+      return;
     }
 
     req.user = payload;
     next();
   });
+
+  // Function returns here after initiating async verification
+  return;
 }
 
 export function generateToken(payload: Omit<JwtPayload, 'iat' | 'exp' | 'iss' | 'aud'>): string {

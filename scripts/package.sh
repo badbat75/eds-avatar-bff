@@ -73,7 +73,7 @@ fi
 
 # Create tar.xz archive
 echo -e "${BLUE}📦 Creating tar.xz archive...${NC}"
-if ! tar -cJf "$ARCHIVE_NAME" dist/; then
+if ! tar -cJf "$ARCHIVE_NAME" dist package.json package-lock.json .env.example; then
     echo -e "${RED}❌ Failed to create tar.xz archive${NC}" >&2
     exit 1
 fi

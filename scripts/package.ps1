@@ -49,7 +49,7 @@ try {
 
     # Use Windows built-in tar with xz compression (Windows 10+ version 1809+)
     try {
-        & tar.exe -cJf "$ArchiveName" dist
+        & tar.exe -cJf "$ArchiveName" dist package.json package-lock.json .env.example
         if ($LASTEXITCODE -ne 0) {
             throw "tar command failed with exit code $LASTEXITCODE"
         }
