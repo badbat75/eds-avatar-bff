@@ -5,3 +5,14 @@ dist/
 *.log
 coverage/
 .nyc_output/
+
+# Deployment configuration
+scripts/deploy.conf
+
+# Deployment packages
+*.tar.xz
+*.tar.gz
+*.zip
+
+# Deployment logs
+logs/

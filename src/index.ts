@@ -6,6 +6,7 @@ import { config } from './config/environment';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import tokenRoutes from './routes/token';
 import healthRoutes from './routes/health';
+import promptRoutes from './routes/prompt';
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use((req, res, next) => {
 // Routes
 app.use('/api/health', healthRoutes);
 app.use('/api/token', tokenRoutes);
+app.use('/api/prompt', promptRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {

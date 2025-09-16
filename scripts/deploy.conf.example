@@ -1,0 +1,30 @@
+# Deployment Configuration File Example
+# Copy this file to deploy.conf and edit with your values
+
+# SSH Connection Settings
+SSH_HOST=your-server.example.com
+SSH_USER=deploy
+SSH_PORT=22
+
+# Remote Deployment Path
+REMOTE_DEPLOY_DIR=/var/www/eds-avatar-bff
+
+# Deployment User Settings
+DEPLOY_USER=deploy
+
+# Local Build Settings
+BUILD_OUTPUT=dist
+PACKAGE_NAME=eds-avatar-bff
+
+# Backup Settings
+BACKUP_DIR=/var/backups/eds-avatar-bff
+KEEP_BACKUPS=5
+
+# Optional: SSH Key Path (leave empty to use default)
+# SSH_KEY_PATH=~/.ssh/id_rsa
+
+# Optional: Node environment for remote
+REMOTE_NODE_ENV=production
+
+# Optional: Service Name (if using systemd)
+# SYSTEMD_SERVICE=eds-avatar-bff.service
