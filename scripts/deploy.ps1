@@ -1,12 +1,15 @@
 #!/usr/bin/env pwsh
 # deploy.ps1 - Deploy eds-avatar-bff to remote server
-# Usage: .\scripts\deploy.ps1 [-ConfigFile <path>] [-SkipBuild] [-DryRun]
+# Usage: .\scripts\deploy.ps1 [-ConfigFile <path>] [-SkipBuild] [-DryRun] [-Prompt] [-Code] [-All]
 
 param(
     [string]$ConfigFile = "$PSScriptRoot\deploy.conf",
     [switch]$SkipBuild = $false,
     [switch]$DryRun = $false,
-    [switch]$Force = $false
+    [switch]$Force = $false,
+    [switch]$Prompt = $false,
+    [switch]$Code = $false,
+    [switch]$All = $false
 )
 
 Set-StrictMode -Version Latest
@@ -79,6 +82,24 @@ function Write-DryRun { param([string]$Message) Write-Log "[DRY RUN] $Message" "
 Write-Log "EDS Avatar BFF - Deployment Script Started"
 Write-Log ""
 
+# Validate and set deployment type
+$deploymentTypesCount = @($Prompt, $Code, $All).Where({$_}).Count
+if ($deploymentTypesCount -eq 0) {
+    # Default to code deployment if no type specified
+    $Code = $true
+    $deploymentType = "code"
+} elseif ($deploymentTypesCount -eq 1) {
+    if ($Prompt) { $deploymentType = "prompt" }
+    elseif ($Code) { $deploymentType = "code" }
+    elseif ($All) { $deploymentType = "all" }
+} else {
+    Write-Log "Error: Cannot specify multiple deployment types. Use only one of: -Prompt, -Code, or -All" "ERROR"
+    exit 1
+}
+
+Write-Log "Deployment type: $deploymentType"
+Write-Log ""
+
 # Load configuration
 if (-not (Test-Path $ConfigFile)) {
     Write-Log "Configuration file not found: $ConfigFile" "ERROR"
@@ -117,6 +138,7 @@ if (-not $config.ContainsKey('REMOTE_NODE_ENV')) { $config['REMOTE_NODE_ENV'] = 
 
 # Display configuration
 Write-Info "Deployment Configuration:"
+Write-Info "  Type: $deploymentType"
 Write-Info "  Host: $($config['SSH_USER'])@$($config['SSH_HOST']):$($config['SSH_PORT'])"
 Write-Info "  Deploy to: $($config['REMOTE_DEPLOY_DIR'])"
 Write-Info "  Backup to: $($config['BACKUP_DIR'])"
@@ -205,7 +227,7 @@ function Invoke-SSHCommand {
 
 try {
     # Step 1: Build and package
-    if (-not $SkipBuild) {
+    if (-not $SkipBuild -and ($deploymentType -eq "code" -or $deploymentType -eq "all")) {
         Write-Step "Building project"
         if (-not $DryRun) {
             npm run build
@@ -216,7 +238,11 @@ try {
             Write-DryRun "npm run build"
         }
     } else {
-        Write-Warning "Skipping build step"
+        if ($deploymentType -eq "prompt") {
+            Write-Info "Skipping build step for prompt-only deployment"
+        } else {
+            Write-Warning "Skipping build step"
+        }
     }
 
     # Step 2: Create package using package.ps1
@@ -225,13 +251,13 @@ try {
 
     if (-not $DryRun) {
         # Call package.ps1 and capture the package path
-        & $packageScript -SkipBuild:$true
+        & $packageScript -SkipBuild:$true -DeploymentType:$deploymentType
         if ($LASTEXITCODE -ne 0) {
             throw "Package creation failed"
         }
 
-        # Find the latest package file
-        $packagePattern = "$($config['PACKAGE_NAME'])_*.tar.xz"
+        # Find the latest package file with deployment type suffix
+        $packagePattern = "$($config['PACKAGE_NAME'])_*_${deploymentType}.tar.xz"
         $packageFile = Get-ChildItem -Path ".." -Filter $packagePattern |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
@@ -243,8 +269,8 @@ try {
         $packagePath = $packageFile.FullName
         Write-Success "Package created: $($packageFile.Name)"
     } else {
-        Write-DryRun ".\scripts\package.ps1 -SkipBuild"
-        $packagePath = "..\$($config['PACKAGE_NAME'])_dummy.tar.xz"
+        Write-DryRun ".\scripts\package.ps1 -SkipBuild -DeploymentType:$deploymentType"
+        $packagePath = "..\$($config['PACKAGE_NAME'])_dummy_${deploymentType}.tar.xz"
     }
 
     # Step 3: Transfer package to server
@@ -291,14 +317,30 @@ try {
     $backupTimestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $backupFile = "$($config['BACKUP_DIR'])/backup-$backupTimestamp.tar.xz"
 
+    # Create backup command based on deployment type
+    $backupItems = @()
+    switch ($deploymentType) {
+        "prompt" { $backupItems = @("prompts") }
+        "code" { $backupItems = @("dist") }
+        "all" { $backupItems = @("dist", "prompts") }
+    }
+
     $backupCommand = "sudo -u $($config['DEPLOY_USER']) mkdir -pv $($config['BACKUP_DIR']) && " +
-                    "if [ -d $($config['REMOTE_DEPLOY_DIR'])/dist ]; then " +
                     "cd $($config['REMOTE_DEPLOY_DIR']) && " +
-                    "sudo -u $($config['DEPLOY_USER']) tar -czvf $backupFile dist propmpts package.json .env 2>/dev/null || true && " +
-                    "echo 'Backup created: $backupFile'; " +
-                    "else " +
-                    "echo 'No existing deployment to backup'; " +
-                    "fi"
+                    "FILES_TO_BACKUP=''"
+
+    foreach ($item in $backupItems) {
+        $backupCommand += " && if [ -d $item ]; then FILES_TO_BACKUP=`"`$FILES_TO_BACKUP $item`"; fi"
+    }
+
+    $backupCommand += " && if [ -f package.json ]; then FILES_TO_BACKUP=`"`$FILES_TO_BACKUP package.json`"; fi" +
+                     " && if [ -f .env ]; then FILES_TO_BACKUP=`"`$FILES_TO_BACKUP .env`"; fi" +
+                     " && if [ -n `"`$FILES_TO_BACKUP`" ]; then " +
+                     "sudo -u $($config['DEPLOY_USER']) tar -czvf $backupFile `$FILES_TO_BACKUP 2>/dev/null || true && " +
+                     "echo 'Backup created: $backupFile'; " +
+                     "else " +
+                     "echo 'No existing deployment to backup'; " +
+                     "fi"
 
     try {
         Invoke-SSHCommand -Command $backupCommand -StepName "Backup Current Deployment" -IgnoreErrors $true
@@ -332,22 +374,52 @@ try {
     # Step 5b: Deploy new package
     Write-Step "Deploying new package"
 
-    $deployCommand = "cd $($config['REMOTE_DEPLOY_DIR']) && " +
-                    "sudo -u $($config['DEPLOY_USER']) rm -rfv dist.old && " +
-                    "if [ -d dist ]; then sudo -u $($config['DEPLOY_USER']) mv -v dist dist.old; fi && " +
-                    "if [ -d prompts ]; then sudo -u $($config['DEPLOY_USER']) mv -v prompts prompts.old; fi && " +
-                    "sudo -u $($config['DEPLOY_USER']) tar -xvf $remoteTempPath && " +
-                    "sudo -u $($config['DEPLOY_USER']) mkdir -pv prompts"
+    $deployCommand = "cd $($config['REMOTE_DEPLOY_DIR'])"
 
-    # Install npm dependencies if package.json changed
-    $deployCommand += " && if [ -f package.json ]; then " +
-                      "echo 'Installing npm dependencies...' && " +
-                      "sudo -u $($config['DEPLOY_USER']) NODE_ENV=$($config['REMOTE_NODE_ENV']) npm ci --production; " +
-                      "fi"
+    # Handle backup of current directories based on deployment type
+    switch ($deploymentType) {
+        "prompt" {
+            $deployCommand += " && sudo -u $($config['DEPLOY_USER']) rm -rfv prompts.old" +
+                             " && if [ -d prompts ]; then sudo -u $($config['DEPLOY_USER']) mv -v prompts prompts.old; fi"
+        }
+        "code" {
+            $deployCommand += " && sudo -u $($config['DEPLOY_USER']) rm -rfv dist.old" +
+                             " && if [ -d dist ]; then sudo -u $($config['DEPLOY_USER']) mv -v dist dist.old; fi"
+        }
+        "all" {
+            $deployCommand += " && sudo -u $($config['DEPLOY_USER']) rm -rfv dist.old prompts.old" +
+                             " && if [ -d dist ]; then sudo -u $($config['DEPLOY_USER']) mv -v dist dist.old; fi" +
+                             " && if [ -d prompts ]; then sudo -u $($config['DEPLOY_USER']) mv -v prompts prompts.old; fi"
+        }
+    }
+
+    # Extract the new package
+    $deployCommand += " && sudo -u $($config['DEPLOY_USER']) tar -xvf $remoteTempPath"
+
+    # Ensure directories exist based on deployment type
+    switch ($deploymentType) {
+        "prompt" {
+            $deployCommand += " && sudo -u $($config['DEPLOY_USER']) mkdir -pv prompts"
+        }
+        "code" {
+            # dist directory should be extracted from package
+        }
+        "all" {
+            $deployCommand += " && sudo -u $($config['DEPLOY_USER']) mkdir -pv prompts"
+        }
+    }
+
+    # Install npm dependencies if package.json changed (only for code or all deployments)
+    if ($deploymentType -eq "code" -or $deploymentType -eq "all") {
+        $deployCommand += " && if [ -f package.json ]; then " +
+                          "echo 'Installing npm dependencies...' && " +
+                          "sudo -u $($config['DEPLOY_USER']) NODE_ENV=$($config['REMOTE_NODE_ENV']) npm ci --production; " +
+                          "fi"
+    }
 
 
-    # Handle systemd if configured
-    if ($config.ContainsKey('SYSTEMD_SERVICE') -and $config['SYSTEMD_SERVICE']) {
+    # Handle systemd if configured (only for code or all deployments)
+    if ($config.ContainsKey('SYSTEMD_SERVICE') -and $config['SYSTEMD_SERVICE'] -and ($deploymentType -eq "code" -or $deploymentType -eq "all")) {
         $deployCommand += " && echo 'Starting/restarting systemd service: $($config['SYSTEMD_SERVICE'])' && " +
                          "sudo systemctl restart $($config['SYSTEMD_SERVICE']) && " +
                          "sudo systemctl enable $($config['SYSTEMD_SERVICE'])"
@@ -394,16 +466,39 @@ try {
     # Step 8: Verify deployment
     Write-Step "Verifying deployment"
 
-    $verifyCommand = "cd $($config['REMOTE_DEPLOY_DIR']) && " +
-                    "if [ -f dist/index.js ]; then " +
-                    "echo 'Deployment verified: dist/index.js exists' && " +
-                    "if [ -f deploy-info.json ]; then cat deploy-info.json; fi; " +
-                    "else " +
-                    "echo 'ERROR: dist/index.js not found!' && exit 1; " +
-                    "fi"
+    $verifyCommand = "cd $($config['REMOTE_DEPLOY_DIR'])"
+
+    # Verify based on deployment type
+    switch ($deploymentType) {
+        "prompt" {
+            $verifyCommand += " && if [ -d prompts ]; then " +
+                             "echo 'Deployment verified: prompts directory exists' && " +
+                             "ls -la prompts/ || true; " +
+                             "else " +
+                             "echo 'ERROR: prompts directory not found!' && exit 1; " +
+                             "fi"
+        }
+        "code" {
+            $verifyCommand += " && if [ -f dist/index.js ]; then " +
+                             "echo 'Deployment verified: dist/index.js exists' && " +
+                             "if [ -f deploy-info.json ]; then cat deploy-info.json; fi; " +
+                             "else " +
+                             "echo 'ERROR: dist/index.js not found!' && exit 1; " +
+                             "fi"
+        }
+        "all" {
+            $verifyCommand += " && if [ -f dist/index.js ] && [ -d prompts ]; then " +
+                             "echo 'Deployment verified: both dist/index.js and prompts directory exist' && " +
+                             "if [ -f deploy-info.json ]; then cat deploy-info.json; fi && " +
+                             "ls -la prompts/ || true; " +
+                             "else " +
+                             "echo 'ERROR: Missing dist/index.js or prompts directory!' && exit 1; " +
+                             "fi"
+        }
+    }
 
 
-    if ($config.ContainsKey('SYSTEMD_SERVICE') -and $config['SYSTEMD_SERVICE']) {
+    if ($config.ContainsKey('SYSTEMD_SERVICE') -and $config['SYSTEMD_SERVICE'] -and ($deploymentType -eq "code" -or $deploymentType -eq "all")) {
         $verifyCommand += " && systemctl status $($config['SYSTEMD_SERVICE']) --no-pager 2>/dev/null || true"
     }
 
@@ -434,15 +529,16 @@ try {
         Write-DryRun "Remove local package file: $packagePath"
     }
 
-    Write-Complete "Deployment completed successfully!"
+    Write-Complete "$deploymentType deployment completed successfully!"
     Write-Info "Server: $($config['SSH_HOST'])"
     Write-Info "Path: $($config['REMOTE_DEPLOY_DIR'])"
+    Write-Info "Type: $deploymentType"
 
     if ($config.ContainsKey('PM2_APP_NAME') -and $config['PM2_APP_NAME']) {
         Write-Info "PM2 App: $($config['PM2_APP_NAME'])"
     }
 
-    if ($config.ContainsKey('SYSTEMD_SERVICE') -and $config['SYSTEMD_SERVICE']) {
+    if ($config.ContainsKey('SYSTEMD_SERVICE') -and $config['SYSTEMD_SERVICE'] -and ($deploymentType -eq "code" -or $deploymentType -eq "all")) {
         Write-Info "Service: $($config['SYSTEMD_SERVICE'])"
     }
 
@@ -459,15 +555,34 @@ try {
         Write-Warning "Attempting to rollback..."
         Write-Log "Starting rollback procedure" "WARNING"
 
-        $rollbackCommand = "cd $($config['REMOTE_DEPLOY_DIR']) && " +
-                          "if [ -d dist.old ]; then " +
-                          "sudo -u $($config['DEPLOY_USER']) rm -rfv dist && " +
-                          "sudo -u $($config['DEPLOY_USER']) mv -v dist.old dist && " +
-                          "if [ -d prompts.old ]; then " +
-                          "sudo -u $($config['DEPLOY_USER']) rm -rfv prompts && " +
-                          "sudo -u $($config['DEPLOY_USER']) mv -v prompts.old prompts && " +
-                          "echo 'Rollback completed'; " +
-                          "fi"
+        $rollbackCommand = "cd $($config['REMOTE_DEPLOY_DIR'])"
+
+        # Rollback based on deployment type
+        switch ($deploymentType) {
+            "prompt" {
+                $rollbackCommand += " && if [ -d prompts.old ]; then " +
+                                   "sudo -u $($config['DEPLOY_USER']) rm -rfv prompts && " +
+                                   "sudo -u $($config['DEPLOY_USER']) mv -v prompts.old prompts && " +
+                                   "echo 'Prompts rollback completed'; " +
+                                   "else echo 'No prompts backup found for rollback'; fi"
+            }
+            "code" {
+                $rollbackCommand += " && if [ -d dist.old ]; then " +
+                                   "sudo -u $($config['DEPLOY_USER']) rm -rfv dist && " +
+                                   "sudo -u $($config['DEPLOY_USER']) mv -v dist.old dist && " +
+                                   "echo 'Code rollback completed'; " +
+                                   "else echo 'No code backup found for rollback'; fi"
+            }
+            "all" {
+                $rollbackCommand += " && if [ -d dist.old ]; then " +
+                                   "sudo -u $($config['DEPLOY_USER']) rm -rfv dist && " +
+                                   "sudo -u $($config['DEPLOY_USER']) mv -v dist.old dist; " +
+                                   "fi && if [ -d prompts.old ]; then " +
+                                   "sudo -u $($config['DEPLOY_USER']) rm -rfv prompts && " +
+                                   "sudo -u $($config['DEPLOY_USER']) mv -v prompts.old prompts; " +
+                                   "fi && echo 'Full rollback completed'"
+            }
+        }
 
         try {
             Invoke-SSHCommand -Command $rollbackCommand -StepName "Rollback Deployment" -IgnoreErrors $true

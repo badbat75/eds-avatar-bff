@@ -16,3 +16,6 @@ scripts/deploy.conf
 
 # Deployment logs
 logs/
+
+# Prompts directory (deployed separately)
+prompts/

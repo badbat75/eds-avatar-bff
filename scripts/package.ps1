@@ -2,7 +2,8 @@
 # PowerShell script to build and package eds-avatar-bff for distribution
 
 param(
-    [switch]$SkipBuild = $false
+    [switch]$SkipBuild = $false,
+    [string]$DeploymentType = "code"
 )
 
 Set-StrictMode -Version Latest
@@ -13,7 +14,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $ProjectRoot
 
 try {
-    Write-Host "📦 Packaging eds-avatar-bff..." -ForegroundColor Green
+    Write-Host "📦 Packaging eds-avatar-bff ($DeploymentType deployment)..." -ForegroundColor Green
 
     # Get git commit hash
     $GitCommit = git rev-parse --short HEAD
@@ -21,11 +22,11 @@ try {
         throw "Failed to get git commit hash"
     }
 
-    $ArchiveName = "..\eds-avatar-bff_$GitCommit.tar.xz"
+    $ArchiveName = "..\eds-avatar-bff_${GitCommit}_${DeploymentType}.tar.xz"
     Write-Host "Creating archive: $ArchiveName" -ForegroundColor Yellow
 
-    # Build the project unless skipped
-    if (-not $SkipBuild) {
+    # Build the project unless skipped (only for code or all deployments)
+    if (-not $SkipBuild -and ($DeploymentType -eq "code" -or $DeploymentType -eq "all")) {
         Write-Host "🔨 Building project..." -ForegroundColor Blue
         npm run build
         if ($LASTEXITCODE -ne 0) {
@@ -33,8 +34,8 @@ try {
         }
     }
 
-    # Check if dist directory exists
-    if (-not (Test-Path "dist")) {
+    # Check if dist directory exists (only for code or all deployments)
+    if (($DeploymentType -eq "code" -or $DeploymentType -eq "all") -and -not (Test-Path "dist")) {
         throw "dist directory not found. Run build first or use without -SkipBuild flag."
     }
 
@@ -49,7 +50,37 @@ try {
 
     # Use Windows built-in tar with xz compression (Windows 10+ version 1809+)
     try {
-        & tar.exe -cJf "$ArchiveName" dist prompts package.json package-lock.json .env.example
+        # Build file list based on deployment type
+        $filesToInclude = @()
+
+        switch ($DeploymentType) {
+            "prompt" {
+                $filesToInclude = @("prompts")
+                if (Test-Path "package.json") { $filesToInclude += "package.json" }
+                if (Test-Path ".env.example") { $filesToInclude += ".env.example" }
+            }
+            "code" {
+                $filesToInclude = @("dist", "package.json")
+                if (Test-Path "package-lock.json") { $filesToInclude += "package-lock.json" }
+                if (Test-Path ".env.example") { $filesToInclude += ".env.example" }
+            }
+            "all" {
+                $filesToInclude = @("dist", "prompts", "package.json")
+                if (Test-Path "package-lock.json") { $filesToInclude += "package-lock.json" }
+                if (Test-Path ".env.example") { $filesToInclude += ".env.example" }
+            }
+        }
+
+        # Filter out files that don't exist
+        $existingFiles = $filesToInclude | Where-Object { Test-Path $_ }
+
+        if ($existingFiles.Count -eq 0) {
+            throw "No files found to package for $DeploymentType deployment"
+        }
+
+        Write-Host "Including files: $($existingFiles -join ', ')" -ForegroundColor Cyan
+
+        & tar.exe -cJf "$ArchiveName" @existingFiles
         if ($LASTEXITCODE -ne 0) {
             throw "tar command failed with exit code $LASTEXITCODE"
         }
