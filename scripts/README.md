@@ -24,11 +24,12 @@ Deploys the application to a remote server via SSH.
 
 **Usage:**
 ```powershell
-.\scripts\deploy.ps1 [-ConfigFile <path>] [-SkipBuild] [-DryRun] [-Force]
+.\scripts\deploy.ps1 [-Environment <dev|prod>] [-ConfigFile <path>] [-SkipBuild] [-DryRun] [-Force]
 ```
 
 **Options:**
-- `-ConfigFile`: Path to configuration file (default: `scripts\deploy.conf`)
+- `-Environment`: Target environment (default: `dev`). Automatically loads `deploy.dev.conf` or `deploy.prod.conf`
+- `-ConfigFile`: Override path to configuration file (defaults to environment-specific file when omitted)
 - `-SkipBuild`: Skip the build step
 - `-DryRun`: Show what would be done without making changes
 - `-Force`: Continue even if backup fails
@@ -48,12 +49,13 @@ Deploys the application to a remote server via SSH.
 
 ### Setting up deployment configuration
 
-1. Copy the example configuration:
+1. Copy the example configuration for each environment:
 ```powershell
-Copy-Item scripts\deploy.conf.example scripts\deploy.conf
+Copy-Item scripts\deploy.conf.example scripts\deploy.dev.conf
+Copy-Item scripts\deploy.conf.example scripts\deploy.prod.conf
 ```
 
-2. Edit `deploy.conf` with your server details:
+2. Edit `deploy.dev.conf` / `deploy.prod.conf` with your server details:
 ```ini
 # SSH Connection
 SSH_HOST=your-server.com
@@ -61,14 +63,18 @@ SSH_USER=deploy
 SSH_PORT=22
 
 # Deployment paths
-REMOTE_DEPLOY_DIR=/var/www/eds-avatar-bff
-BACKUP_DIR=/var/backups/eds-avatar-bff
+REMOTE_DEPLOY_DIR=/var/www/eds-avatar-bff      # prod
+BACKUP_DIR=/var/backups/eds-avatar-bff         # prod backup directory
 
 # Deployment user (all deployment commands run as this user)
 DEPLOY_USER=eds-avatar-bff
 
 # Optional: systemd service
 # SYSTEMD_SERVICE=eds-avatar-bff.service
+
+The deployment script will automatically pick `deploy.dev.conf` for `-Environment dev` and `deploy.prod.conf` for `-Environment prod` unless a custom `-ConfigFile` is provided.
+
+> For development deployments, use the corresponding dev paths (e.g., `/opt/eds-avatar-bff_dev` and `/var/backups/eds-avatar-bff_dev`).
 ```
 
 ### Server Prerequisites
@@ -119,8 +125,11 @@ sudo systemctl enable eds-avatar-bff.service
 
 ### Standard Deployment
 ```powershell
-# Full deployment with build
+# Full deployment to development (default)
 .\scripts\deploy.ps1
+
+# Deploy to production
+.\scripts\deploy.ps1 -Environment prod
 
 # Skip build if already built
 .\scripts\deploy.ps1 -SkipBuild

@@ -164,6 +164,10 @@ Write-Info "  Deploy to: $($config['REMOTE_DEPLOY_DIR'])"
 Write-Info "  Backup to: $($config['BACKUP_DIR'])"
 Write-Info ""
 
+Write-Host "Deploying to environment: $($Environment.ToUpper())" -ForegroundColor Cyan
+Write-Host "Target directory: $($config['SSH_HOST']):$($config['REMOTE_DEPLOY_DIR'])" -ForegroundColor Cyan
+Write-Host ""
+
 if ($DryRun) {
     Write-Warning "Running in DRY RUN mode - no actual changes will be made"
     Write-Info ""
