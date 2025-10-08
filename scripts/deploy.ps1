@@ -3,10 +3,12 @@
 # Usage: .\scripts\deploy.ps1 [-ConfigFile <path>] [-SkipBuild] [-DryRun] [-Prompt] [-Code] [-All]
 
 param(
-    [string]$ConfigFile = "$PSScriptRoot\deploy.conf",
+    [string]$ConfigFile = $null,
     [switch]$SkipBuild = $false,
     [switch]$DryRun = $false,
     [switch]$Force = $false,
+    [ValidateSet('dev', 'prod')]
+    [string]$Environment = 'dev',
     [switch]$Prompt = $false,
     [switch]$Code = $false,
     [switch]$All = $false
@@ -82,6 +84,11 @@ function Write-DryRun { param([string]$Message) Write-Log "[DRY RUN] $Message" "
 Write-Log "EDS Avatar BFF - Deployment Script Started"
 Write-Log ""
 
+# Determine configuration file based on environment when not explicitly provided
+if (-not $PSBoundParameters.ContainsKey('ConfigFile') -or [string]::IsNullOrWhiteSpace($ConfigFile)) {
+    $ConfigFile = Join-Path $PSScriptRoot ("deploy.{0}.conf" -f $Environment)
+}
+
 # Validate and set deployment type
 $deploymentTypesCount = @($Prompt, $Code, $All).Where({$_}).Count
 if ($deploymentTypesCount -eq 0) {
@@ -128,6 +135,17 @@ foreach ($key in $requiredKeys) {
     }
 }
 
+# Configure deployment based on environment parameter (default: dev for safety)
+if ($Environment -eq 'dev') {
+    $config['REMOTE_DEPLOY_DIR'] = '/opt/eds-avatar-bff_dev'
+    $config['BACKUP_DIR'] = '/var/backups/eds-avatar-bff_dev'
+    Write-Info "Using DEVELOPMENT deployment mode (default)"
+    Write-Info "Deploy directory: $($config['REMOTE_DEPLOY_DIR'])"
+} else {
+    Write-Info "Using PRODUCTION deployment mode"
+    Write-Info "Deploy directory: $($config['REMOTE_DEPLOY_DIR'])"
+}
+
 # Set defaults for optional configuration
 if (-not $config.ContainsKey('SSH_PORT')) { $config['SSH_PORT'] = '22' }
 if (-not $config.ContainsKey('BUILD_OUTPUT')) { $config['BUILD_OUTPUT'] = 'dist' }
@@ -138,6 +156,8 @@ if (-not $config.ContainsKey('REMOTE_NODE_ENV')) { $config['REMOTE_NODE_ENV'] = 
 
 # Display configuration
 Write-Info "Deployment Configuration:"
+Write-Info "  Environment: $($Environment.ToUpper())"
+Write-Info "  Config File: $ConfigFile"
 Write-Info "  Type: $deploymentType"
 Write-Info "  Host: $($config['SSH_USER'])@$($config['SSH_HOST']):$($config['SSH_PORT'])"
 Write-Info "  Deploy to: $($config['REMOTE_DEPLOY_DIR'])"
