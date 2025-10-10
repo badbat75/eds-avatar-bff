@@ -61,21 +61,38 @@ export interface Logger {
   error: (context: LogContext, message: string, error?: Error, data?: Record<string, unknown>) => void;
 }
 
+// Helper to extract correlationId from data if present
+function extractCorrelationId(data?: Record<string, unknown>): { correlationId?: string, rest: Record<string, unknown> } {
+  if (!data) {
+    return { rest: {} };
+  }
+
+  const { correlationId, ...rest } = data;
+  return {
+    correlationId: typeof correlationId === 'string' ? correlationId : undefined,
+    rest,
+  };
+}
+
 // Create structured logger
 export const structuredLogger: Logger = {
   debug: (context: LogContext, message: string, data?: Record<string, unknown>) => {
-    logger.debug({ context, ...data }, message);
+    const { correlationId, rest } = extractCorrelationId(data);
+    logger.debug({ context, correlationId, ...rest }, message);
   },
 
   info: (context: LogContext, message: string, data?: Record<string, unknown>) => {
-    logger.info({ context, ...data }, message);
+    const { correlationId, rest } = extractCorrelationId(data);
+    logger.info({ context, correlationId, ...rest }, message);
   },
 
   warn: (context: LogContext, message: string, data?: Record<string, unknown>) => {
-    logger.warn({ context, ...data }, message);
+    const { correlationId, rest } = extractCorrelationId(data);
+    logger.warn({ context, correlationId, ...rest }, message);
   },
 
   error: (context: LogContext, message: string, error?: Error, data?: Record<string, unknown>) => {
+    const { correlationId, rest } = extractCorrelationId(data);
     const errorData = error ? {
       error: {
         message: error.message,
@@ -84,7 +101,7 @@ export const structuredLogger: Logger = {
       },
     } : undefined;
 
-    logger.error({ context, ...errorData, ...data }, message);
+    logger.error({ context, correlationId, ...errorData, ...rest }, message);
   },
 };
 

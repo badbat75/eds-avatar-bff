@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/environment';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { correlationIdMiddleware } from './middleware/correlationId';
 import tokenRoutes from './routes/token';
 import healthRoutes from './routes/health';
 import promptRoutes from './routes/prompt';
@@ -15,6 +16,9 @@ const app = express();
 // This allows express-rate-limit to correctly identify users via X-Forwarded-For header
 // Only trust proxies on localhost/loopback to prevent IP spoofing
 app.set('trust proxy', 'loopback');
+
+// Correlation ID middleware (must be first to track all requests)
+app.use(correlationIdMiddleware);
 
 // Security middleware
 app.use(helmet({
@@ -62,6 +66,7 @@ app.use((req, res, next) => {
     method: req.method,
     url: req.url,
     ip: req.ip,
+    correlationId: req.correlationId,
   });
   next();
 });
