@@ -1,7 +1,13 @@
 import { createClient } from '@deepgram/sdk';
 import { config } from '../config/environment';
-import { AppError } from '../middleware/errorHandler';
 import { logError, LOG_CONTEXTS } from './logger';
+import {
+  createDeepgramTokenError,
+  createExternalServiceError,
+  createRateLimitError,
+  createConfigurationError,
+  AppError,
+} from '../errors/errorCatalog';
 
 export class DeepgramTokenService {
   private deepgram: ReturnType<typeof createClient>;
@@ -25,14 +31,14 @@ export class DeepgramTokenService {
 
       if (projectsError || !projects || !projects.projects || projects.projects.length === 0) {
         logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to get projects', projectsError as Error);
-        throw new AppError('Failed to access Deepgram projects', 500);
+        throw createExternalServiceError('Deepgram', 'Failed to access Deepgram projects');
       }
 
       // Use the first project (or you could make this configurable)
       const projectId = projects.projects[0]?.project_id;
 
       if (!projectId) {
-        throw new AppError('No project ID found in Deepgram projects', 500);
+        throw createConfigurationError('No project ID found in Deepgram projects');
       }
 
       // Generate a project token with configurable expiry
@@ -47,7 +53,7 @@ export class DeepgramTokenService {
 
       if (keyError || !projectTokenResponse?.key) {
         logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to create project key', keyError as Error);
-        throw new AppError('Failed to generate Deepgram token', 500);
+        throw createDeepgramTokenError('Failed to generate Deepgram token', { userId, sessionId });
       }
 
       return {
@@ -70,16 +76,16 @@ export class DeepgramTokenService {
 
         if (statusCode !== undefined) {
           if (statusCode === 401) {
-            throw new AppError('Invalid Deepgram API key', 500);
+            throw createConfigurationError('Invalid Deepgram API key', { statusCode });
           } else if (statusCode === 429) {
-            throw new AppError('Rate limit exceeded', 429);
+            throw createRateLimitError('Deepgram rate limit exceeded', { statusCode });
           } else if (statusCode >= 400 && statusCode < 500) {
-            throw new AppError(`Deepgram client error: ${message}`, 400);
+            throw createExternalServiceError('Deepgram', message, { statusCode });
           }
         }
       }
 
-      throw new AppError('Failed to generate Deepgram token', 500);
+      throw createDeepgramTokenError('Failed to generate Deepgram token', { userId, sessionId });
     }
   }
 
@@ -94,7 +100,7 @@ export class DeepgramTokenService {
 
       if (error || !result?.access_token) {
         logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to grant access token', error as Error);
-        throw new AppError('Failed to generate access token', 500);
+        throw createDeepgramTokenError('Failed to generate access token');
       }
 
       const expiresAt = new Date(Date.now() + result.expires_in * 1000);
@@ -111,7 +117,7 @@ export class DeepgramTokenService {
         throw error;
       }
 
-      throw new AppError('Failed to generate access token', 500);
+      throw createDeepgramTokenError('Failed to generate access token');
     }
   }
 

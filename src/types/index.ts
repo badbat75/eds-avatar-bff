@@ -23,6 +23,8 @@ export interface ApiError {
   error: string;
   message: string;
   statusCode: number;
+  code: string;
+  context?: Record<string, unknown>;
 }
 
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';

@@ -137,7 +137,7 @@ describe('DeepgramTokenService', () => {
       });
 
       await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(
-        'Rate limit exceeded',
+        'Deepgram rate limit exceeded',
       );
     });
 
@@ -148,7 +148,7 @@ describe('DeepgramTokenService', () => {
       });
 
       await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(
-        'Deepgram client error: Bad request',
+        'External service error (Deepgram): Bad request',
       );
     });
 

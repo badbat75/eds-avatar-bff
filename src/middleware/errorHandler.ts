@@ -5,11 +5,21 @@ import { logError, LOG_CONTEXTS } from '../utils/logger';
 export class AppError extends Error {
   public statusCode: number;
   public isOperational: boolean;
+  public code: string;
+  public context?: Record<string, unknown>;
 
-  constructor(message: string, statusCode: number, isOperational = true) {
+  constructor(
+    message: string,
+    statusCode: number,
+    code: string,
+    isOperational = true,
+    context?: Record<string, unknown>,
+  ) {
     super(message);
     this.statusCode = statusCode;
+    this.code = code;
     this.isOperational = isOperational;
+    this.context = context;
 
     Error.captureStackTrace(this, this.constructor);
   }
@@ -23,23 +33,31 @@ export function errorHandler(
 ): void {
   let statusCode = 500;
   let message = 'Internal server error';
+  let code = 'INTERNAL_ERROR';
+  let context: Record<string, unknown> | undefined;
 
   if (error instanceof AppError) {
     statusCode = error.statusCode;
     message = error.message;
+    code = error.code;
+    context = error.context;
   } else if (error.name === 'JsonWebTokenError') {
     statusCode = 401;
     message = 'Invalid token';
+    code = 'AUTH_INVALID_TOKEN';
   } else if (error.name === 'TokenExpiredError') {
     statusCode = 401;
     message = 'Token expired';
+    code = 'AUTH_TOKEN_EXPIRED';
   }
 
   // Log error for debugging
   logError(LOG_CONTEXTS.ERROR, 'Request error', error, {
     statusCode,
+    code,
     url: req.url,
     method: req.method,
+    context,
   });
 
   // Map status codes to error names
@@ -58,6 +76,8 @@ export function errorHandler(
     error: errorName,
     message,
     statusCode,
+    code,
+    ...(context && { context }),
   };
 
   res.status(statusCode).json(apiError);
@@ -68,6 +88,7 @@ export function notFoundHandler(req: Request, res: Response): void {
     error: 'Not Found',
     message: `Route ${req.method} ${req.url} not found`,
     statusCode: 404,
+    code: 'ROUTE_NOT_FOUND',
   };
 
   res.status(404).json(apiError);

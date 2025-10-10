@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodSchema, ZodError } from 'zod';
-import { AppError } from './errorHandler';
 import { logWarn, LOG_CONTEXTS } from '../utils/logger';
+import { createValidationError } from '../errors/errorCatalog';
 
 /**
  * Validation target enum
@@ -57,9 +57,9 @@ export function validate(
         });
 
         // Return 400 Bad Request with detailed error information
-        const validationError = new AppError(
+        const validationError = createValidationError(
           `Validation failed: ${errorMessages.map(e => `${e.field} - ${e.message}`).join(', ')}`,
-          400,
+          { target, errors: errorMessages, path: req.path },
         );
 
         next(validationError);

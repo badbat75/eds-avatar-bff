@@ -3,9 +3,9 @@ import { authenticateToken } from '../middleware/auth';
 import { validateBody } from '../middleware/validation';
 import { deepgramTokenService } from '../utils/deepgram';
 import { DeepgramTokenRequest, DeepgramTokenResponse } from '../types';
-import { AppError } from '../middleware/errorHandler';
 import { logInfo, LOG_CONTEXTS } from '../utils/logger';
 import { deepgramTokenRequestSchema } from '../schemas/validation';
+import { createMissingFieldError } from '../errors/errorCatalog';
 
 const router = Router();
 
@@ -17,7 +17,7 @@ router.post('/deepgram', authenticateToken, validateBody(deepgramTokenRequestSch
       const userId = req.user?.sub;
 
       if (!userId) {
-        throw new AppError('User ID not found in token', 400);
+        throw createMissingFieldError('userId', { source: 'JWT token' });
       }
 
       // Generate configurable TTL project token from Deepgram

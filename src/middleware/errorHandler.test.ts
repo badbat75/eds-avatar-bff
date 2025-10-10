@@ -37,25 +37,33 @@ describe('errorHandler middleware', () => {
   });
 
   describe('AppError', () => {
-    it('should create AppError with statusCode and isOperational', () => {
-      const error = new AppError('Test error', 400);
+    it('should create AppError with statusCode, code, and isOperational', () => {
+      const error = new AppError('Test error', 400, 'TEST_ERROR');
 
       expect(error.message).toBe('Test error');
       expect(error.statusCode).toBe(400);
+      expect(error.code).toBe('TEST_ERROR');
       expect(error.isOperational).toBe(true);
       expect(error instanceof Error).toBe(true);
     });
 
     it('should set isOperational to false when specified', () => {
-      const error = new AppError('System error', 500, false);
+      const error = new AppError('System error', 500, 'SYSTEM_ERROR', false);
 
       expect(error.isOperational).toBe(false);
+    });
+
+    it('should store context metadata', () => {
+      const context = { userId: '123', action: 'test' };
+      const error = new AppError('Test error', 400, 'TEST_ERROR', true, context);
+
+      expect(error.context).toEqual(context);
     });
   });
 
   describe('errorHandler', () => {
     it('should handle AppError correctly', () => {
-      const error = new AppError('Custom error message', 404);
+      const error = new AppError('Custom error message', 404, 'CUSTOM_NOT_FOUND');
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
@@ -64,6 +72,7 @@ describe('errorHandler middleware', () => {
         error: 'Not Found',
         message: 'Custom error message',
         statusCode: 404,
+        code: 'CUSTOM_NOT_FOUND',
       });
     });
 
@@ -77,6 +86,7 @@ describe('errorHandler middleware', () => {
         error: 'Internal Server Error',
         message: 'Internal server error',
         statusCode: 500,
+        code: 'INTERNAL_ERROR',
       });
     });
 
@@ -91,6 +101,7 @@ describe('errorHandler middleware', () => {
         error: 'Unauthorized',
         message: 'Invalid token',
         statusCode: 401,
+        code: 'AUTH_INVALID_TOKEN',
       });
     });
 
@@ -105,11 +116,12 @@ describe('errorHandler middleware', () => {
         error: 'Unauthorized',
         message: 'Token expired',
         statusCode: 401,
+        code: 'AUTH_TOKEN_EXPIRED',
       });
     });
 
     it('should handle 400 Bad Request errors', () => {
-      const error = new AppError('Invalid input', 400);
+      const error = new AppError('Invalid input', 400, 'INVALID_INPUT');
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
@@ -118,11 +130,12 @@ describe('errorHandler middleware', () => {
         error: 'Bad Request',
         message: 'Invalid input',
         statusCode: 400,
+        code: 'INVALID_INPUT',
       });
     });
 
     it('should handle 401 Unauthorized errors', () => {
-      const error = new AppError('Not authenticated', 401);
+      const error = new AppError('Not authenticated', 401, 'AUTH_REQUIRED');
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
@@ -131,11 +144,12 @@ describe('errorHandler middleware', () => {
         error: 'Unauthorized',
         message: 'Not authenticated',
         statusCode: 401,
+        code: 'AUTH_REQUIRED',
       });
     });
 
     it('should handle 403 Forbidden errors', () => {
-      const error = new AppError('Access denied', 403);
+      const error = new AppError('Access denied', 403, 'ACCESS_DENIED');
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
@@ -144,11 +158,12 @@ describe('errorHandler middleware', () => {
         error: 'Forbidden',
         message: 'Access denied',
         statusCode: 403,
+        code: 'ACCESS_DENIED',
       });
     });
 
     it('should handle 429 Too Many Requests errors', () => {
-      const error = new AppError('Rate limit exceeded', 429);
+      const error = new AppError('Rate limit exceeded', 429, 'RATE_LIMIT');
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
@@ -157,11 +172,12 @@ describe('errorHandler middleware', () => {
         error: 'Too Many Requests',
         message: 'Rate limit exceeded',
         statusCode: 429,
+        code: 'RATE_LIMIT',
       });
     });
 
     it('should use default message for unknown status codes', () => {
-      const error = new AppError('Custom message', 418); // I'm a teapot
+      const error = new AppError('Custom message', 418, 'TEAPOT'); // I'm a teapot
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
@@ -170,6 +186,23 @@ describe('errorHandler middleware', () => {
         error: 'Client Error', // 418 is in 4xx range
         message: 'Custom message',
         statusCode: 418,
+        code: 'TEAPOT',
+      });
+    });
+
+    it('should include context metadata in response when provided', () => {
+      const context = { userId: '123', attemptedAction: 'delete' };
+      const error = new AppError('Access denied', 403, 'ACCESS_DENIED', true, context);
+
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(mockStatus).toHaveBeenCalledWith(403);
+      expect(mockJson).toHaveBeenCalledWith({
+        error: 'Forbidden',
+        message: 'Access denied',
+        statusCode: 403,
+        code: 'ACCESS_DENIED',
+        context,
       });
     });
   });
@@ -186,6 +219,7 @@ describe('errorHandler middleware', () => {
         error: 'Not Found',
         message: 'Route GET /api/non-existent not found',
         statusCode: 404,
+        code: 'ROUTE_NOT_FOUND',
       });
     });
 
@@ -199,6 +233,7 @@ describe('errorHandler middleware', () => {
       expect(mockJson).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('/api/unknown-endpoint'),
+          code: 'ROUTE_NOT_FOUND',
         }),
       );
     });
