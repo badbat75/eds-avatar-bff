@@ -1,14 +1,16 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authenticateToken } from '../middleware/auth';
+import { validateBody } from '../middleware/validation';
 import { deepgramTokenService } from '../utils/deepgram';
 import { DeepgramTokenRequest, DeepgramTokenResponse } from '../types';
 import { AppError } from '../middleware/errorHandler';
 import { logInfo, LOG_CONTEXTS } from '../utils/logger';
+import { deepgramTokenRequestSchema } from '../schemas/validation';
 
 const router = Router();
 
 // POST /api/token/deepgram - Generate a new Deepgram token
-router.post('/deepgram', authenticateToken, (req: Request, res: Response, next: NextFunction) => {
+router.post('/deepgram', authenticateToken, validateBody(deepgramTokenRequestSchema), (req: Request, res: Response, next: NextFunction) => {
   void (async () => {
     try {
       const { sessionId } = req.body as Partial<DeepgramTokenRequest>;

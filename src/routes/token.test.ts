@@ -5,6 +5,7 @@ import tokenRoutes from './token';
 import { authenticateToken } from '../middleware/auth';
 import { deepgramTokenService } from '../utils/deepgram';
 import { createMockToken } from '../test/helpers';
+import { errorHandler } from '../middleware/errorHandler';
 
 // Mock authentication middleware
 vi.mock('../middleware/auth', () => ({
@@ -29,8 +30,10 @@ vi.mock('../utils/deepgram', () => ({
 vi.mock('../utils/logger', () => ({
   logInfo: vi.fn(),
   logError: vi.fn(),
+  logWarn: vi.fn(),
   LOG_CONTEXTS: {
     TOKEN: 'token',
+    API: 'api',
   },
 }));
 
@@ -41,6 +44,7 @@ describe('Token Routes', () => {
     app = express();
     app.use(express.json());
     app.use('/api/token', tokenRoutes);
+    app.use(errorHandler);
   });
 
   beforeEach(() => {
@@ -134,6 +138,31 @@ describe('Token Routes', () => {
       const response = await request(app).post('/api/token/deepgram').send();
 
       expect(response.status).toBe(401);
+    });
+
+    it('should reject sessionId over 100 characters', async () => {
+      const longSessionId = 'a'.repeat(101);
+      const token = createMockToken();
+
+      const response = await request(app)
+        .post('/api/token/deepgram')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ sessionId: longSessionId });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject non-string sessionId', async () => {
+      const token = createMockToken();
+
+      const response = await request(app)
+        .post('/api/token/deepgram')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ sessionId: 12345 });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
     });
   });
 

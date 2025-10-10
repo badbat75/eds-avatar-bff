@@ -11,6 +11,7 @@ export const LOG_CONTEXTS = {
   ERROR: 'error',
   STARTUP: 'startup',
   SHUTDOWN: 'shutdown',
+  API: 'api',
 } as const;
 
 export type LogContext = typeof LOG_CONTEXTS[keyof typeof LOG_CONTEXTS];
