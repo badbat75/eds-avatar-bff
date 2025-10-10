@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
+import chokidar, { FSWatcher } from 'chokidar';
 import { logInfo, logError, logWarn, LOG_CONTEXTS } from '../utils/logger';
 
 const readFile = promisify(fs.readFile);
@@ -16,7 +17,8 @@ export class PromptService {
   private static instance: PromptService;
   private promptCache: PromptData | null = null;
   private promptFilePath: string;
-  private fileWatcher: fs.FSWatcher | null = null;
+  private fileWatcher: FSWatcher | null = null;
+  private watcherReady = false;
 
   private constructor() {
     // Store prompt file in a 'prompts' directory within the project
@@ -88,22 +90,49 @@ export class PromptService {
   }
 
   /**
-   * Watch prompt file for changes
+   * Watch prompt file for changes using chokidar for cross-platform reliability
    */
   private watchPromptFile(): void {
     try {
       if (this.fileWatcher) {
-        this.fileWatcher.close();
+        void this.fileWatcher.close();
       }
 
-      this.fileWatcher = fs.watch(this.promptFilePath, (eventType) => {
-        if (eventType === 'change') {
-          logInfo(LOG_CONTEXTS.PROMPT, 'Prompt file changed, reloading', { path: this.promptFilePath });
-          void this.loadPromptFromFile();
-        }
+      // Use chokidar for robust file watching
+      this.fileWatcher = chokidar.watch(this.promptFilePath, {
+        persistent: true,
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 100,
+          pollInterval: 50,
+        },
       });
 
-      logInfo(LOG_CONTEXTS.PROMPT, 'Watching prompt file for changes', { path: this.promptFilePath });
+      // Handle file changes
+      this.fileWatcher.on('change', (changedPath) => {
+        logInfo(LOG_CONTEXTS.PROMPT, 'Prompt file changed, reloading', { path: changedPath });
+        void this.loadPromptFromFile();
+      });
+
+      // Handle watcher ready
+      this.fileWatcher.on('ready', () => {
+        this.watcherReady = true;
+        logInfo(LOG_CONTEXTS.PROMPT, 'File watcher initialized and ready', { path: this.promptFilePath });
+      });
+
+      // Handle watcher errors with recovery
+      this.fileWatcher.on('error', (error: unknown) => {
+        logError(LOG_CONTEXTS.PROMPT, 'File watcher error, attempting recovery', error as Error);
+        this.watcherReady = false;
+
+        // Attempt to restart the watcher after a delay
+        setTimeout(() => {
+          logInfo(LOG_CONTEXTS.PROMPT, 'Attempting to restart file watcher');
+          this.watchPromptFile();
+        }, 5000);
+      });
+
+      logInfo(LOG_CONTEXTS.PROMPT, 'Starting file watcher for prompt file', { path: this.promptFilePath });
     } catch (error) {
       logError(LOG_CONTEXTS.PROMPT, 'Error setting up file watcher', error as Error);
     }
@@ -163,11 +192,20 @@ Remember to:
   /**
    * Clean up resources
    */
-  public dispose(): void {
+  public async dispose(): Promise<void> {
     if (this.fileWatcher) {
-      this.fileWatcher.close();
+      await this.fileWatcher.close();
       this.fileWatcher = null;
+      this.watcherReady = false;
+      logInfo(LOG_CONTEXTS.PROMPT, 'File watcher closed');
     }
+  }
+
+  /**
+   * Check if file watcher is ready
+   */
+  public isWatcherReady(): boolean {
+    return this.watcherReady;
   }
 }
 

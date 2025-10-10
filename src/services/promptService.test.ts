@@ -10,6 +10,18 @@ vi.mock('../utils/logger', () => ({
   },
 }));
 
+// Mock chokidar
+vi.mock('chokidar', () => {
+  return {
+    default: {
+      watch: vi.fn(() => ({
+        on: vi.fn().mockReturnThis(),
+        close: vi.fn().mockResolvedValue(undefined),
+      })),
+    },
+  };
+});
+
 // Mock fs module with synchronous mocks
 vi.mock('fs', () => {
   return {
@@ -101,18 +113,27 @@ describe('PromptService', () => {
   });
 
   describe('dispose', () => {
-    it('should cleanup resources', () => {
+    it('should cleanup resources', async () => {
       const service = PromptService.getInstance();
 
-      expect(() => service.dispose()).not.toThrow();
+      await expect(service.dispose()).resolves.not.toThrow();
     });
 
-    it('should handle dispose when file watcher is null', () => {
+    it('should handle dispose when file watcher is null', async () => {
       const service = PromptService.getInstance();
       // Dispose once to close watcher
-      service.dispose();
+      await service.dispose();
       // Dispose again when watcher is null
-      expect(() => service.dispose()).not.toThrow();
+      await expect(service.dispose()).resolves.not.toThrow();
+    });
+  });
+
+  describe('isWatcherReady', () => {
+    it('should return watcher ready status', () => {
+      const service = PromptService.getInstance();
+      // Initially false or based on watcher initialization
+      const ready = service.isWatcherReady();
+      expect(typeof ready).toBe('boolean');
     });
   });
 
