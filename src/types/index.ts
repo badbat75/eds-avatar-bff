@@ -43,6 +43,7 @@ export interface EnvironmentConfig {
   jwksCacheMaxAgeMs: number;
   jwksRequestTimeoutMs: number;
   deepgramApiKey: string;
+  deepgramProjectId?: string;
   deepgramTokenTtlMinutes: number;
   allowedOrigins: string[];
   rateLimitWindowMs: number;

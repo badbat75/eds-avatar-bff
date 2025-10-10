@@ -26,19 +26,23 @@ export class DeepgramTokenService {
       const expiresIn = config.deepgramTokenTtlMinutes * 60; // Convert minutes to seconds
       const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-      // First get the projects to find the project ID
-      const { result: projects, error: projectsError } = await this.deepgram.manage.getProjects();
-
-      if (projectsError || !projects || !projects.projects || projects.projects.length === 0) {
-        logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to get projects', projectsError as Error);
-        throw createExternalServiceError('Deepgram', 'Failed to access Deepgram projects');
-      }
-
-      // Use the first project (or you could make this configurable)
-      const projectId = projects.projects[0]?.project_id;
+      // Use configured project ID if available, otherwise fetch from API
+      let projectId = config.deepgramProjectId;
 
       if (!projectId) {
-        throw createConfigurationError('No project ID found in Deepgram projects');
+        // Fallback: get the first project from Deepgram API
+        const { result: projects, error: projectsError } = await this.deepgram.manage.getProjects();
+
+        if (projectsError || !projects || !projects.projects || projects.projects.length === 0) {
+          logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to get projects', projectsError as Error);
+          throw createExternalServiceError('Deepgram', 'Failed to access Deepgram projects');
+        }
+
+        projectId = projects.projects[0]?.project_id;
+
+        if (!projectId) {
+          throw createConfigurationError('No project ID found in Deepgram projects');
+        }
       }
 
       // Generate a project token with configurable expiry
@@ -135,6 +139,11 @@ export class DeepgramTokenService {
   // Get current TTL configuration
   getTokenTtlMinutes(): number {
     return config.deepgramTokenTtlMinutes;
+  }
+
+  // Get configured project ID (if set)
+  getConfiguredProjectId(): string | undefined {
+    return config.deepgramProjectId;
   }
 }
 

@@ -230,4 +230,53 @@ describe('DeepgramTokenService', () => {
       expect(typeof ttl).toBe('number');
     });
   });
+
+  describe('getConfiguredProjectId', () => {
+    it('should return undefined when no project ID is configured', () => {
+      const projectId = service.getConfiguredProjectId();
+
+      expect(projectId).toBeUndefined();
+    });
+  });
+
+  describe('generateProjectToken with configured project ID', () => {
+    it('should use configured project ID when available', async () => {
+      // Mock the config to have a project ID
+      const configModule = await import('../config/environment.js');
+      const originalProjectId = configModule.config.deepgramProjectId;
+
+      // Set a configured project ID
+      (configModule.config as any).deepgramProjectId = 'configured-project-id';
+
+      const mockKeyResponse = {
+        key: 'test-deepgram-key',
+        key_id: 'test-key-id',
+        member_id: 'test-member-id',
+      };
+
+      mockDeepgramClient.manage.createProjectKey.mockResolvedValue({
+        result: mockKeyResponse,
+        error: null,
+      });
+
+      // Create a new service instance to pick up the config change
+      const newService = new DeepgramTokenService();
+      const result = await newService.generateProjectToken('test-user-123');
+
+      expect(result).toHaveProperty('token', 'test-deepgram-key');
+      // Should NOT call getProjects when project ID is configured
+      expect(mockDeepgramClient.manage.getProjects).not.toHaveBeenCalled();
+      // Should use the configured project ID
+      expect(mockDeepgramClient.manage.createProjectKey).toHaveBeenCalledWith(
+        'configured-project-id',
+        expect.objectContaining({
+          scopes: ['usage:read', 'usage:write'],
+          time_to_live_in_seconds: 900,
+        }),
+      );
+
+      // Restore original value
+      (configModule.config as any).deepgramProjectId = originalProjectId;
+    });
+  });
 });

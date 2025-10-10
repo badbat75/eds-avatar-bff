@@ -66,6 +66,7 @@ export const config: EnvironmentConfig = {
   jwksCacheMaxAgeMs: parseIntEnvVar('JWKS_CACHE_MAX_AGE_MS', 600000), // 10 minutes
   jwksRequestTimeoutMs: parseIntEnvVar('JWKS_REQUEST_TIMEOUT_MS', 30000), // 30 seconds
   deepgramApiKey: getRequiredEnvVar('DEEPGRAM_API_KEY'),
+  deepgramProjectId: process.env.DEEPGRAM_PROJECT_ID,
   deepgramTokenTtlMinutes: parseIntEnvVar('DEEPGRAM_TOKEN_TTL_MINUTES', 15),
   allowedOrigins: parseArrayEnvVar('ALLOWED_ORIGINS', ['http://localhost:8080']),
   rateLimitWindowMs: parseIntEnvVar('RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000), // 15 minutes
