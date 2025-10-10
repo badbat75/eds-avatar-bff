@@ -6,10 +6,10 @@ export class AppError extends Error {
   public statusCode: number;
   public isOperational: boolean;
 
-  constructor(message: string, statusCode: number) {
+  constructor(message: string, statusCode: number, isOperational = true) {
     super(message);
     this.statusCode = statusCode;
-    this.isOperational = true;
+    this.isOperational = isOperational;
 
     Error.captureStackTrace(this, this.constructor);
   }
@@ -42,8 +42,20 @@ export function errorHandler(
     method: req.method,
   });
 
+  // Map status codes to error names
+  const errorNames: Record<number, string> = {
+    400: 'Bad Request',
+    401: 'Unauthorized',
+    403: 'Forbidden',
+    404: 'Not Found',
+    429: 'Too Many Requests',
+    500: 'Internal Server Error',
+  };
+
+  const errorName = errorNames[statusCode] || (statusCode >= 500 ? 'Internal Server Error' : statusCode >= 400 ? 'Client Error' : 'Error');
+
   const apiError: ApiError = {
-    error: statusCode >= 500 ? 'Internal Server Error' : 'Client Error',
+    error: errorName,
     message,
     statusCode,
   };
