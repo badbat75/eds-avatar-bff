@@ -1,6 +1,7 @@
 import { createClient } from '@deepgram/sdk';
 import { config } from '../config/environment';
 import { AppError } from '../middleware/errorHandler';
+import { logError, LOG_CONTEXTS } from './logger';
 
 export class DeepgramTokenService {
   private deepgram: ReturnType<typeof createClient>;
@@ -23,7 +24,7 @@ export class DeepgramTokenService {
       const { result: projects, error: projectsError } = await this.deepgram.manage.getProjects();
 
       if (projectsError || !projects || !projects.projects || projects.projects.length === 0) {
-        console.error('Failed to get projects:', projectsError);
+        logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to get projects', projectsError as Error);
         throw new AppError('Failed to access Deepgram projects', 500);
       }
 
@@ -41,11 +42,11 @@ export class DeepgramTokenService {
           comment: `BFF Token for user ${userId}${sessionId ? ` session ${sessionId}` : ''} (${config.deepgramTokenTtlMinutes}min TTL)`,
           scopes: ['usage:read', 'usage:write'],
           time_to_live_in_seconds: expiresIn,
-        }
+        },
       );
 
       if (keyError || !projectTokenResponse?.key) {
-        console.error('Failed to create project key:', keyError);
+        logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to create project key', keyError as Error);
         throw new AppError('Failed to generate Deepgram token', 500);
       }
 
@@ -55,7 +56,7 @@ export class DeepgramTokenService {
         expiresAt: expiresAt.toISOString(),
       };
     } catch (error) {
-      console.error('Deepgram token generation error:', error);
+      logError(LOG_CONTEXTS.DEEPGRAM, 'Deepgram token generation error', error as Error);
 
       if (error instanceof AppError) {
         throw error;
@@ -63,15 +64,18 @@ export class DeepgramTokenService {
 
       // Handle specific Deepgram API errors
       if (error && typeof error === 'object' && 'status' in error) {
-        const statusCode = (error as any).status;
-        const message = (error as any).message || 'Deepgram API error';
+        const errorObj = error as { status?: number; message?: string };
+        const statusCode = errorObj.status;
+        const message = errorObj.message || 'Deepgram API error';
 
-        if (statusCode === 401) {
-          throw new AppError('Invalid Deepgram API key', 500);
-        } else if (statusCode === 429) {
-          throw new AppError('Rate limit exceeded', 429);
-        } else if (statusCode >= 400 && statusCode < 500) {
-          throw new AppError(`Deepgram client error: ${message}`, 400);
+        if (statusCode !== undefined) {
+          if (statusCode === 401) {
+            throw new AppError('Invalid Deepgram API key', 500);
+          } else if (statusCode === 429) {
+            throw new AppError('Rate limit exceeded', 429);
+          } else if (statusCode >= 400 && statusCode < 500) {
+            throw new AppError(`Deepgram client error: ${message}`, 400);
+          }
         }
       }
 
@@ -89,7 +93,7 @@ export class DeepgramTokenService {
       const { result, error } = await this.deepgram.auth.grantToken();
 
       if (error || !result?.access_token) {
-        console.error('Failed to grant access token:', error);
+        logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to grant access token', error as Error);
         throw new AppError('Failed to generate access token', 500);
       }
 
@@ -101,7 +105,7 @@ export class DeepgramTokenService {
         expiresAt: expiresAt.toISOString(),
       };
     } catch (error) {
-      console.error('Access token generation error:', error);
+      logError(LOG_CONTEXTS.DEEPGRAM, 'Access token generation error', error as Error);
 
       if (error instanceof AppError) {
         throw error;

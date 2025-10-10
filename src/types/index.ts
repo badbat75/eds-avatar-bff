@@ -25,10 +25,13 @@ export interface ApiError {
   statusCode: number;
 }
 
+export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+
 export interface EnvironmentConfig {
   host: string;
   port: number;
   nodeEnv: string;
+  logLevel: LogLevel;
   jwtSecret: string;
   jwtIssuer: string;
   jwtAudience: string;

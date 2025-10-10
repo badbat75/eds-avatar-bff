@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
+import { logInfo, logError, logWarn, LOG_CONTEXTS } from '../utils/logger';
 
 const readFile = promisify(fs.readFile);
 const writeFile = promisify(fs.writeFile);
-const exists = promisify(fs.exists);
 
 export interface PromptData {
   prompt: string;
@@ -21,8 +21,8 @@ export class PromptService {
   private constructor() {
     // Store prompt file in a 'prompts' directory within the project
     this.promptFilePath = path.join(process.cwd(), 'prompts', 'ai-assistant.txt');
-    this.initializePromptFile();
-    this.loadPromptFromFile();
+    void this.initializePromptFile();
+    void this.loadPromptFromFile();
     this.watchPromptFile();
   }
 
@@ -43,17 +43,17 @@ export class PromptService {
       // Create prompts directory if it doesn't exist
       if (!fs.existsSync(promptsDir)) {
         fs.mkdirSync(promptsDir, { recursive: true });
-        console.log('Created prompts directory:', promptsDir);
+        logInfo(LOG_CONTEXTS.PROMPT, 'Created prompts directory', { path: promptsDir });
       }
 
       // Create default prompt file if it doesn't exist
       if (!fs.existsSync(this.promptFilePath)) {
         const defaultPrompt = this.getDefaultPrompt();
         await writeFile(this.promptFilePath, defaultPrompt, 'utf-8');
-        console.log('Created default AI assistant prompt file:', this.promptFilePath);
+        logInfo(LOG_CONTEXTS.PROMPT, 'Created default AI assistant prompt file', { path: this.promptFilePath });
       }
     } catch (error) {
-      console.error('Error initializing prompt file:', error);
+      logError(LOG_CONTEXTS.PROMPT, 'Error initializing prompt file', error as Error);
     }
   }
 
@@ -68,18 +68,22 @@ export class PromptService {
       this.promptCache = {
         prompt: promptContent,
         lastModified: stats.mtime.toISOString(),
-        version: '1.0.0'
+        version: '1.0.0',
       };
 
-      console.log('Loaded AI assistant prompt from file (length:', promptContent.length, 'characters)');
+      logInfo(LOG_CONTEXTS.PROMPT, 'Loaded AI assistant prompt from file', {
+        path: this.promptFilePath,
+        length: promptContent.length,
+      });
     } catch (error) {
-      console.error('Error loading prompt from file:', error);
+      logError(LOG_CONTEXTS.PROMPT, 'Error loading prompt from file', error as Error);
       // Use default prompt as fallback
       this.promptCache = {
         prompt: this.getDefaultPrompt(),
         lastModified: new Date().toISOString(),
-        version: '1.0.0'
+        version: '1.0.0',
       };
+      logWarn(LOG_CONTEXTS.PROMPT, 'Using default prompt as fallback');
     }
   }
 
@@ -94,14 +98,14 @@ export class PromptService {
 
       this.fileWatcher = fs.watch(this.promptFilePath, (eventType) => {
         if (eventType === 'change') {
-          console.log('Prompt file changed, reloading...');
-          this.loadPromptFromFile();
+          logInfo(LOG_CONTEXTS.PROMPT, 'Prompt file changed, reloading', { path: this.promptFilePath });
+          void this.loadPromptFromFile();
         }
       });
 
-      console.log('Watching prompt file for changes:', this.promptFilePath);
+      logInfo(LOG_CONTEXTS.PROMPT, 'Watching prompt file for changes', { path: this.promptFilePath });
     } catch (error) {
-      console.error('Error setting up file watcher:', error);
+      logError(LOG_CONTEXTS.PROMPT, 'Error setting up file watcher', error as Error);
     }
   }
 
@@ -130,7 +134,7 @@ export class PromptService {
       throw new Error('Failed to reload prompt');
     }
 
-    console.log('Prompt reloaded successfully');
+    logInfo(LOG_CONTEXTS.PROMPT, 'Prompt reloaded successfully');
     return this.promptCache;
   }
 

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { ApiError } from '../types';
+import { logError, LOG_CONTEXTS } from '../utils/logger';
 
 export class AppError extends Error {
   public statusCode: number;
@@ -18,7 +19,7 @@ export function errorHandler(
   error: Error | AppError,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction,
 ): void {
   let statusCode = 500;
   let message = 'Internal server error';
@@ -35,13 +36,10 @@ export function errorHandler(
   }
 
   // Log error for debugging
-  console.error('Error:', {
-    message: error.message,
-    stack: error.stack,
+  logError(LOG_CONTEXTS.ERROR, 'Request error', error, {
     statusCode,
     url: req.url,
     method: req.method,
-    timestamp: new Date().toISOString(),
   });
 
   const apiError: ApiError = {

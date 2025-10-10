@@ -5,11 +5,9 @@ import { config } from '../config/environment';
 import { JwtPayload } from '../types';
 
 // Extend Express Request type to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: JwtPayload;
-    }
+declare module 'express-serve-static-core' {
+  interface Request {
+    user?: JwtPayload;
   }
 }
 
@@ -26,7 +24,11 @@ const client = jwksClient({
 });
 
 // Function to get the signing key
-function getKey(header: any, callback: any): void {
+function getKey(header: jwt.JwtHeader, callback: jwt.SigningKeyCallback): void {
+  if (!header.kid) {
+    return callback(new Error('Missing kid in token header'));
+  }
+
   client.getSigningKey(header.kid, (err, key) => {
     if (err) {
       return callback(err);
@@ -43,7 +45,7 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
   if (!token) {
     res.status(401).json({
       error: 'Unauthorized',
-      message: 'Access token is required'
+      message: 'Access token is required',
     });
     return;
   }
@@ -52,12 +54,12 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
   jwt.verify(token, getKey, {
     audience: config.jwtAudience,
     issuer: config.jwtIssuer,
-    algorithms: config.jwtVerifyAlgorithms as jwt.Algorithm[]
+    algorithms: config.jwtVerifyAlgorithms as jwt.Algorithm[],
   }, (err, decoded) => {
     if (err) {
       res.status(403).json({
         error: 'Forbidden',
-        message: `Token validation failed: ${err.message}`
+        message: `Token validation failed: ${err.message}`,
       });
       return;
     }
@@ -68,7 +70,7 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
     if (!payload.sub) {
       res.status(403).json({
         error: 'Forbidden',
-        message: 'Token validation failed: Invalid token payload - missing subject'
+        message: 'Token validation failed: Invalid token payload - missing subject',
       });
       return;
     }

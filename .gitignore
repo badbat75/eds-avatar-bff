@@ -19,3 +19,5 @@ logs/
 
 # Prompts directory (deployed separately)
 prompts/
+
+doc/TODO.md

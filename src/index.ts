@@ -7,6 +7,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import tokenRoutes from './routes/token';
 import healthRoutes from './routes/health';
 import promptRoutes from './routes/prompt';
+import { logInfo, logError, LOG_CONTEXTS } from './utils/logger';
 
 const app = express();
 
@@ -19,10 +20,10 @@ app.set('trust proxy', 'loopback');
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
+      defaultSrc: ['\'self\''],
+      styleSrc: ['\'self\'', '\'unsafe-inline\''],
+      scriptSrc: ['\'self\''],
+      imgSrc: ['\'self\'', 'data:', 'https:'],
     },
   },
 }));
@@ -57,7 +58,11 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging middleware
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  logInfo(LOG_CONTEXTS.HTTP, 'Incoming request', {
+    method: req.method,
+    url: req.url,
+    ip: req.ip,
+  });
   next();
 });
 
@@ -83,21 +88,21 @@ app.use(errorHandler);
 
 // Graceful shutdown handler
 const gracefulShutdown = (signal: string) => {
-  console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+  logInfo(LOG_CONTEXTS.SHUTDOWN, 'Received shutdown signal', { signal });
 
   server.close((err) => {
     if (err) {
-      console.error('Error during server shutdown:', err);
+      logError(LOG_CONTEXTS.SHUTDOWN, 'Error during server shutdown', err);
       process.exit(1);
     }
 
-    console.log('Server shut down successfully');
+    logInfo(LOG_CONTEXTS.SHUTDOWN, 'Server shut down successfully');
     process.exit(0);
   });
 
   // Force shutdown after 10 seconds
   setTimeout(() => {
-    console.error('Force shutdown after timeout');
+    logError(LOG_CONTEXTS.SHUTDOWN, 'Force shutdown after timeout');
     process.exit(1);
   }, 10000);
 };
@@ -108,22 +113,25 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception:', error);
+  logError(LOG_CONTEXTS.ERROR, 'Uncaught exception', error);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled rejection at:', promise, 'reason:', reason);
+  logError(LOG_CONTEXTS.ERROR, 'Unhandled rejection', reason as Error, { promise: String(promise) });
   process.exit(1);
 });
 
 // Start server
 const server = app.listen(config.port, config.host, () => {
-  console.log(`\n🚀 EDS Avatar BFF Server running on ${config.host}:${config.port}`);
-  console.log(`Environment: ${config.nodeEnv}`);
-  console.log(`Allowed origins: ${config.allowedOrigins.join(', ')}`);
-  console.log(`Health check: http://${config.host}:${config.port}/api/health`);
-  console.log(`Token endpoint: http://${config.host}:${config.port}/api/token/deepgram`);
+  logInfo(LOG_CONTEXTS.STARTUP, 'EDS Avatar BFF Server started', {
+    host: config.host,
+    port: config.port,
+    environment: config.nodeEnv,
+    allowedOrigins: config.allowedOrigins,
+    healthEndpoint: '/api/health',
+    tokenEndpoint: '/api/token/deepgram',
+  });
 });
 
 export default app;

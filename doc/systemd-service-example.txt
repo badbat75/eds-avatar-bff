@@ -1,0 +1,49 @@
+# Systemd Service Configuration for EDS Avatar BFF
+# Location: /etc/systemd/system/eds-avatar-bff-dev.service (dev)
+#           /etc/systemd/system/eds-avatar-bff.service (prod)
+
+[Unit]
+Description=EDS Avatar BFF (Dev) - JWT authenticated API for Deepgram tokens
+After=network.target
+
+[Service]
+Type=simple
+User=eds-avatar-bff
+Group=eds-avatar-bff
+WorkingDirectory=/opt/eds-avatar-bff_dev
+
+# Set HOME to working directory to fix npm log permissions
+Environment=HOME=/opt/eds-avatar-bff_dev
+Environment=NPM_CONFIG_CACHE=/opt/eds-avatar-bff_dev/.npm-cache
+
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=10
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/eds-avatar-bff_dev
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=eds-avatar-bff-dev
+
+[Install]
+WantedBy=multi-user.target
+
+# Installation instructions:
+# 1. Copy this file to /etc/systemd/system/eds-avatar-bff-dev.service
+# 2. sudo systemctl daemon-reload
+# 3. sudo systemctl enable eds-avatar-bff-dev
+# 4. sudo systemctl start eds-avatar-bff-dev
+# 5. sudo systemctl status eds-avatar-bff-dev
+
+# For production deployment (/var/www/eds-avatar-bff or similar):
+# - Change WorkingDirectory to your production path
+# - Change SyslogIdentifier to eds-avatar-bff
+# - Update HOME and NPM_CONFIG_CACHE paths
+# - Update ReadWritePaths to production path

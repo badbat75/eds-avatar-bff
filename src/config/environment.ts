@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { EnvironmentConfig } from '../types';
+import { EnvironmentConfig, LogLevel } from '../types';
 
 // Load environment variables
 dotenv.config();
@@ -16,9 +16,23 @@ function getOptionalEnvVar(name: string, defaultValue: string): string {
   return process.env[name] || defaultValue;
 }
 
+function getLogLevel(nodeEnv: string): LogLevel {
+  const envLogLevel = process.env.LOG_LEVEL?.toLowerCase();
+  const validLevels: LogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
+
+  if (envLogLevel && validLevels.includes(envLogLevel as LogLevel)) {
+    return envLogLevel as LogLevel;
+  }
+
+  // Default based on NODE_ENV
+  return nodeEnv === 'development' ? 'debug' : 'info';
+}
+
 function parseIntEnvVar(name: string, defaultValue: number): number {
   const value = process.env[name];
-  if (!value) return defaultValue;
+  if (!value) {
+return defaultValue;
+}
 
   const parsed = parseInt(value, 10);
   if (isNaN(parsed)) {
@@ -29,15 +43,20 @@ function parseIntEnvVar(name: string, defaultValue: number): number {
 
 function parseArrayEnvVar(name: string, defaultValue: string[]): string[] {
   const value = process.env[name];
-  if (!value) return defaultValue;
+  if (!value) {
+return defaultValue;
+}
 
   return value.split(',').map(item => item.trim()).filter(Boolean);
 }
 
+const nodeEnv = getOptionalEnvVar('NODE_ENV', 'development');
+
 export const config: EnvironmentConfig = {
   host: getOptionalEnvVar('HOST', '0.0.0.0'),
   port: parseIntEnvVar('PORT', 3001),
-  nodeEnv: getOptionalEnvVar('NODE_ENV', 'development'),
+  nodeEnv,
+  logLevel: getLogLevel(nodeEnv),
   jwtSecret: getRequiredEnvVar('JWT_SECRET'),
   jwtIssuer: getOptionalEnvVar('JWT_ISSUER', 'eds-avatar-bff'),
   jwtAudience: getOptionalEnvVar('JWT_AUDIENCE', 'eds-avatar-frontend'),
@@ -63,9 +82,8 @@ export function validateConfig(config: EnvironmentConfig): void {
     throw new Error('PORT must be between 1 and 65535');
   }
 
-  if (!['development', 'production', 'test'].includes(config.nodeEnv)) {
-    console.warn(`Unknown NODE_ENV: ${config.nodeEnv}`);
-  }
+  // Allow any NODE_ENV, just log if it's unusual
+  // This avoids import cycles with logger during config initialization
 
   if (config.allowedOrigins.length === 0) {
     throw new Error('At least one allowed origin must be specified');
