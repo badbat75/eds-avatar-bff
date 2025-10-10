@@ -31,6 +31,7 @@ export function resetHealthCache(): void {
 
 /**
  * Checks Deepgram connectivity with 1-minute caching to prevent API overload
+ * Uses read-only endpoint to avoid creating resources on Deepgram's side
  * @returns Promise resolving to connection status
  */
 async function checkDeepgramConnectivity(): Promise<boolean> {
@@ -41,14 +42,8 @@ async function checkDeepgramConnectivity(): Promise<boolean> {
     return deepgramHealthCache.connected;
   }
 
-  // Perform actual connectivity check
-  let connected = false;
-  try {
-    const testToken = await deepgramTokenService.generateAccessToken();
-    connected = !!testToken.token;
-  } catch (error) {
-    connected = false;
-  }
+  // Perform actual connectivity check using read-only method
+  const connected = await deepgramTokenService.checkConnectivity();
 
   // Update cache
   deepgramHealthCache = {

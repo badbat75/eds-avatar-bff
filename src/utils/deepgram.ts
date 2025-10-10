@@ -179,6 +179,22 @@ export class DeepgramTokenService {
   getConfiguredProjectId(): string | undefined {
     return config.deepgramProjectId;
   }
+
+  /**
+   * Checks Deepgram API connectivity using a read-only endpoint
+   * This method does NOT create any resources or tokens on Deepgram's side
+   * @returns Promise resolving to true if connected, false otherwise
+   */
+  async checkConnectivity(): Promise<boolean> {
+    try {
+      // Use read-only getProjects endpoint to verify API connectivity
+      // This validates the API key without creating any resources
+      const { result, error } = await this.deepgram.manage.getProjects();
+      return !error && !!result && !!result.projects;
+    } catch (error) {
+      return false;
+    }
+  }
 }
 
 /**

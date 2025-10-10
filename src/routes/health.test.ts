@@ -8,7 +8,7 @@ import { deepgramTokenService } from '../utils/deepgram';
 // Mock deepgram service
 vi.mock('../utils/deepgram', () => ({
   deepgramTokenService: {
-    generateAccessToken: vi.fn(),
+    checkConnectivity: vi.fn(),
   },
 }));
 
@@ -24,11 +24,7 @@ describe('Health Routes', () => {
     vi.clearAllMocks();
     resetHealthCache(); // Reset cache before each test
     // Default mock: Deepgram is accessible
-    vi.mocked(deepgramTokenService.generateAccessToken).mockResolvedValue({
-      token: 'test-token',
-      expiresIn: 30,
-      expiresAt: new Date().toISOString(),
-    });
+    vi.mocked(deepgramTokenService.checkConnectivity).mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -52,7 +48,7 @@ describe('Health Routes', () => {
         config: true,
         deepgram: true,
       });
-      expect(deepgramTokenService.generateAccessToken).toHaveBeenCalled();
+      expect(deepgramTokenService.checkConnectivity).toHaveBeenCalled();
     });
 
     it('should return valid timestamp', async () => {
@@ -91,15 +87,13 @@ describe('Health Routes', () => {
         deepgram: false,
       });
       // Should not call Deepgram when config is missing
-      expect(deepgramTokenService.generateAccessToken).not.toHaveBeenCalled();
+      expect(deepgramTokenService.checkConnectivity).not.toHaveBeenCalled();
 
       spy.mockRestore();
     });
 
     it('should return 503 with degraded status when Deepgram is unreachable', async () => {
-      vi.mocked(deepgramTokenService.generateAccessToken).mockRejectedValue(
-        new Error('Deepgram API error'),
-      );
+      vi.mocked(deepgramTokenService.checkConnectivity).mockResolvedValue(false);
 
       const response = await request(app).get('/api/health');
 
@@ -115,19 +109,19 @@ describe('Health Routes', () => {
       // First request - should call Deepgram
       const response1 = await request(app).get('/api/health');
       expect(response1.status).toBe(200);
-      expect(deepgramTokenService.generateAccessToken).toHaveBeenCalledTimes(1);
+      expect(deepgramTokenService.checkConnectivity).toHaveBeenCalledTimes(1);
 
       // Second request within cache window - should use cached value
       const response2 = await request(app).get('/api/health');
       expect(response2.status).toBe(200);
       expect(response2.body.checks.deepgram).toBe(true);
       // Should still be 1 call (cached)
-      expect(deepgramTokenService.generateAccessToken).toHaveBeenCalledTimes(1);
+      expect(deepgramTokenService.checkConnectivity).toHaveBeenCalledTimes(1);
 
       // Third request - should still use cache
       const response3 = await request(app).get('/api/health');
       expect(response3.status).toBe(200);
-      expect(deepgramTokenService.generateAccessToken).toHaveBeenCalledTimes(1);
+      expect(deepgramTokenService.checkConnectivity).toHaveBeenCalledTimes(1);
     });
 
     it('should refresh cache after TTL expires', async () => {
@@ -139,7 +133,7 @@ describe('Health Routes', () => {
       await vi.runAllTimersAsync();
       const response1 = await promise1;
       expect(response1.status).toBe(200);
-      expect(deepgramTokenService.generateAccessToken).toHaveBeenCalledTimes(1);
+      expect(deepgramTokenService.checkConnectivity).toHaveBeenCalledTimes(1);
 
       // Advance time by 61 seconds (past the 60-second cache TTL)
       vi.advanceTimersByTime(61 * 1000);
@@ -149,7 +143,7 @@ describe('Health Routes', () => {
       await vi.runAllTimersAsync();
       const response2 = await promise2;
       expect(response2.status).toBe(200);
-      expect(deepgramTokenService.generateAccessToken).toHaveBeenCalledTimes(2);
+      expect(deepgramTokenService.checkConnectivity).toHaveBeenCalledTimes(2);
 
       vi.useRealTimers();
     });
