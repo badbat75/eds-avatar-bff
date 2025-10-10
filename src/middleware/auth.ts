@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import jwksClient from 'jwks-rsa';
-import { config } from '../config/environment';
+import { config, constructJwksUri } from '../config/environment';
 import { JwtPayload } from '../types';
 
 // Extend Express Request type to include user
@@ -13,7 +13,7 @@ declare module 'express-serve-static-core' {
 
 // Initialize JWKS client for Auth0 public key retrieval
 const client = jwksClient({
-  jwksUri: `https://${config.jwtIssuer.replace(/\/$/, '').replace('https://', '')}/.well-known/jwks.json`,
+  jwksUri: constructJwksUri(config.jwtIssuer),
   requestHeaders: {},
   timeout: config.jwksRequestTimeoutMs,
   cache: true,

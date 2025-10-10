@@ -119,5 +119,38 @@ export function validateConfig(config: EnvironmentConfig): void {
   }
 }
 
+/**
+ * Constructs a JWKS URI from an issuer URL
+ * @param issuer - The JWT issuer URL (e.g., 'https://example.auth0.com/')
+ * @returns The JWKS URI (e.g., 'https://example.auth0.com/.well-known/jwks.json')
+ * @throws Error if the issuer URL is malformed
+ */
+export function constructJwksUri(issuer: string): string {
+  try {
+    // Parse the issuer URL
+    const url = new URL(issuer);
+
+    // Validate protocol
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      throw new Error(`Invalid issuer protocol: ${url.protocol}. Must be http: or https:`);
+    }
+
+    // Ensure path ends with trailing slash for proper URL joining
+    if (!url.pathname.endsWith('/')) {
+      url.pathname += '/';
+    }
+
+    // Construct JWKS URI by appending the well-known path
+    url.pathname += '.well-known/jwks.json';
+
+    return url.toString();
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(`Invalid issuer URL format: ${issuer}`);
+    }
+    throw error;
+  }
+}
+
 // Validate on module load
 validateConfig(config);
