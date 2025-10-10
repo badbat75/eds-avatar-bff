@@ -6,9 +6,44 @@ import { logError, LOG_CONTEXTS } from '../utils/logger';
 const router = Router();
 
 /**
- * GET /api/prompt/assistant
- * Get the current AI assistant prompt
- * Requires JWT authentication
+ * @openapi
+ * /api/prompt/assistant:
+ *   get:
+ *     summary: Get AI assistant prompt
+ *     description: Returns the current AI assistant prompt content
+ *     tags:
+ *       - Prompt
+ *     responses:
+ *       200:
+ *         description: Prompt retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     prompt:
+ *                       type: string
+ *                       description: The AI assistant prompt text
+ *                     lastModified:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
  */
 router.get('/assistant', authenticateToken, (req: Request, res: Response, next: NextFunction) => {
   void (async () => {
@@ -28,9 +63,47 @@ router.get('/assistant', authenticateToken, (req: Request, res: Response, next: 
 });
 
 /**
- * GET /api/prompt/info
- * Get information about the prompt configuration
- * Requires JWT authentication
+ * @openapi
+ * /api/prompt/info:
+ *   get:
+ *     summary: Get prompt metadata
+ *     description: Returns metadata about the prompt configuration including file path and version
+ *     tags:
+ *       - Prompt
+ *     responses:
+ *       200:
+ *         description: Prompt info retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     filePath:
+ *                       type: string
+ *                     lastModified:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                     promptLength:
+ *                       type: number
+ *                     message:
+ *                       type: string
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
  */
 router.get('/info', authenticateToken, (req: Request, res: Response, next: NextFunction) => {
   void (async () => {

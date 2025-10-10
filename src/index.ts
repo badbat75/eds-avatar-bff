@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import swaggerUi from 'swagger-ui-express';
 import { config } from './config/environment';
+import { swaggerSpec } from './config/swagger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { correlationIdMiddleware } from './middleware/correlationId';
 import tokenRoutes from './routes/token';
@@ -20,17 +22,23 @@ app.set('trust proxy', 'loopback');
 // Correlation ID middleware (must be first to track all requests)
 app.use(correlationIdMiddleware);
 
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ['\'self\''],
-      styleSrc: ['\'self\'', '\'unsafe-inline\''],
-      scriptSrc: ['\'self\''],
-      imgSrc: ['\'self\'', 'data:', 'https:'],
+// Security middleware (with exception for Swagger UI)
+app.use((req, res, next) => {
+  // Skip CSP for Swagger UI to allow inline scripts and styles
+  if (req.path.startsWith('/api/docs')) {
+    return next();
+  }
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ['\'self\''],
+        styleSrc: ['\'self\'', '\'unsafe-inline\''],
+        scriptSrc: ['\'self\''],
+        imgSrc: ['\'self\'', 'data:', 'https:'],
+      },
     },
-  },
-}));
+  })(req, res, next);
+});
 
 // CORS configuration
 app.use(cors({
@@ -71,6 +79,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// API Documentation (Swagger UI)
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: 'EDS Avatar BFF API Documentation',
+  customCss: '.swagger-ui .topbar { display: none }',
+}));
+
 // Routes
 app.use('/api/health', healthRoutes);
 app.use('/api/token', tokenRoutes);
@@ -83,7 +97,12 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     status: 'running',
     timestamp: new Date().toISOString(),
-    documentation: '/api/health',
+    endpoints: {
+      documentation: '/api/docs',
+      health: '/api/health',
+      token: '/api/token/deepgram',
+      prompt: '/api/prompt',
+    },
   });
 });
 

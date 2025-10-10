@@ -54,7 +54,29 @@ async function checkDeepgramConnectivity(): Promise<boolean> {
   return connected;
 }
 
-// GET /api/health - Comprehensive health check endpoint with all checks
+/**
+ * @openapi
+ * /api/health:
+ *   get:
+ *     summary: Health check endpoint
+ *     description: Returns comprehensive health status including Deepgram connectivity, configuration validation, and system metrics. Uses 1-minute caching to prevent API overload.
+ *     tags:
+ *       - Health
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Service is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HealthStatus'
+ *       503:
+ *         description: Service is degraded or unhealthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HealthStatus'
+ */
 router.get('/', (req: Request, res: Response) => {
   void (async () => {
     try {
