@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
@@ -39,15 +38,6 @@ app.use((req, res, next) => {
     },
   })(req, res, next);
 });
-
-// CORS configuration
-app.use(cors({
-  origin: config.allowedOrigins,
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  maxAge: 86400, // 24 hours
-}));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -152,7 +142,6 @@ const server = app.listen(config.port, config.host, () => {
     host: config.host,
     port: config.port,
     environment: config.nodeEnv,
-    allowedOrigins: config.allowedOrigins,
     healthEndpoint: '/api/health',
     tokenEndpoint: '/api/token/deepgram',
   });

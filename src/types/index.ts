@@ -101,8 +101,6 @@ export interface EnvironmentConfig {
   deepgramProjectId?: string;
   /** Deepgram token time-to-live in minutes */
   deepgramTokenTtlMinutes: number;
-  /** List of allowed CORS origins */
-  allowedOrigins: string[];
   /** Rate limiting time window in milliseconds */
   rateLimitWindowMs: number;
   /** Maximum requests allowed per rate limit window */

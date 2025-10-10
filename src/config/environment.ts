@@ -107,7 +107,6 @@ export const config: EnvironmentConfig = {
   deepgramApiKey: getRequiredEnvVar('DEEPGRAM_API_KEY'),
   deepgramProjectId: process.env.DEEPGRAM_PROJECT_ID,
   deepgramTokenTtlMinutes: parseIntEnvVar('DEEPGRAM_TOKEN_TTL_MINUTES', 15),
-  allowedOrigins: parseArrayEnvVar('ALLOWED_ORIGINS', ['http://localhost:8080']),
   rateLimitWindowMs: parseIntEnvVar('RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000), // 15 minutes
   rateLimitMaxRequests: parseIntEnvVar('RATE_LIMIT_MAX_REQUESTS', 100),
 };
@@ -128,10 +127,6 @@ export function validateConfig(config: EnvironmentConfig): void {
 
   // Allow any NODE_ENV, just log if it's unusual
   // This avoids import cycles with logger during config initialization
-
-  if (config.allowedOrigins.length === 0) {
-    throw new Error('At least one allowed origin must be specified');
-  }
 
   if (config.deepgramTokenTtlMinutes < 1 || config.deepgramTokenTtlMinutes > 1440) {
     throw new Error('DEEPGRAM_TOKEN_TTL_MINUTES must be between 1 and 1440 minutes (24 hours)');

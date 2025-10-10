@@ -10,7 +10,6 @@ beforeAll(() => {
   process.env.JWT_VERIFY_ALGORITHMS = 'RS256,HS256';
   process.env.DEEPGRAM_API_KEY = 'test-deepgram-api-key';
   process.env.DEEPGRAM_TOKEN_TTL_MINUTES = '15';
-  process.env.ALLOWED_ORIGINS = 'http://localhost:8080';
   process.env.RATE_LIMIT_WINDOW_MS = '900000';
   process.env.RATE_LIMIT_MAX_REQUESTS = '100';
   process.env.HOST = '0.0.0.0';
