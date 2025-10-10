@@ -1,9 +1,20 @@
+/**
+ * Environment configuration and validation module
+ * @module config/environment
+ */
+
 import dotenv from 'dotenv';
 import { EnvironmentConfig, LogLevel } from '../types';
 
 // Load environment variables
 dotenv.config();
 
+/**
+ * Gets a required environment variable or throws an error
+ * @param name - Environment variable name
+ * @returns The environment variable value
+ * @throws {Error} If the environment variable is not set
+ */
 function getRequiredEnvVar(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -12,10 +23,21 @@ function getRequiredEnvVar(name: string): string {
   return value;
 }
 
+/**
+ * Gets an optional environment variable with a default value
+ * @param name - Environment variable name
+ * @param defaultValue - Default value if not set
+ * @returns The environment variable value or default
+ */
 function getOptionalEnvVar(name: string, defaultValue: string): string {
   return process.env[name] || defaultValue;
 }
 
+/**
+ * Determines the log level based on environment configuration
+ * @param nodeEnv - Node environment (development, production, test)
+ * @returns The resolved log level
+ */
 function getLogLevel(nodeEnv: string): LogLevel {
   const envLogLevel = process.env.LOG_LEVEL?.toLowerCase();
   const validLevels: LogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
@@ -28,6 +50,13 @@ function getLogLevel(nodeEnv: string): LogLevel {
   return nodeEnv === 'development' ? 'debug' : 'info';
 }
 
+/**
+ * Parses an integer environment variable with validation
+ * @param name - Environment variable name
+ * @param defaultValue - Default value if not set
+ * @returns The parsed integer value
+ * @throws {Error} If the value is not a valid number
+ */
 function parseIntEnvVar(name: string, defaultValue: number): number {
   const value = process.env[name];
   if (!value) {
@@ -41,6 +70,12 @@ return defaultValue;
   return parsed;
 }
 
+/**
+ * Parses a comma-separated array environment variable
+ * @param name - Environment variable name
+ * @param defaultValue - Default array if not set
+ * @returns Array of trimmed, non-empty strings
+ */
 function parseArrayEnvVar(name: string, defaultValue: string[]): string[] {
   const value = process.env[name];
   if (!value) {
@@ -52,6 +87,10 @@ return defaultValue;
 
 const nodeEnv = getOptionalEnvVar('NODE_ENV', 'development');
 
+/**
+ * Application configuration object loaded from environment variables
+ * @constant config
+ */
 export const config: EnvironmentConfig = {
   host: getOptionalEnvVar('HOST', '0.0.0.0'),
   port: parseIntEnvVar('PORT', 3001),
@@ -73,7 +112,11 @@ export const config: EnvironmentConfig = {
   rateLimitMaxRequests: parseIntEnvVar('RATE_LIMIT_MAX_REQUESTS', 100),
 };
 
-// Validate configuration
+/**
+ * Validates the application configuration
+ * @param config - Configuration object to validate
+ * @throws {Error} If any configuration value is invalid
+ */
 export function validateConfig(config: EnvironmentConfig): void {
   if (config.jwtSecret.length < 32) {
     throw new Error('JWT_SECRET must be at least 32 characters long');
