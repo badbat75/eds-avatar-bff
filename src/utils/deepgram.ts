@@ -30,7 +30,8 @@ export class DeepgramTokenService {
   }
 
   /**
-   * Generates a project-scoped Deepgram token with configurable TTL
+   * Generates a temporary Deepgram token using grantToken (like demo)
+   * This creates a token that inherits all permissions from the main API key
    * @param userId - Unique identifier for the user requesting the token
    * @param sessionId - Optional session identifier for tracking
    * @returns Token object with JWT string, expiration time, and ISO timestamp
@@ -45,42 +46,27 @@ export class DeepgramTokenService {
       const expiresIn = config.deepgramTokenTtlMinutes * 60; // Convert minutes to seconds
       const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-      // Use configured project ID if available, otherwise fetch from API
-      let projectId = config.deepgramProjectId;
+      // Use grantToken() like the demo - creates temporary token with full API key permissions
+      // This is the correct method for Voice Agent API access
+      const { result: tokenResponse, error: tokenError } = await this.deepgram.auth.grantToken();
 
-      if (!projectId) {
-        // Fallback: get the first project from Deepgram API
-        const { result: projects, error: projectsError } = await this.deepgram.manage.getProjects();
-
-        if (projectsError || !projects || !projects.projects || projects.projects.length === 0) {
-          logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to get projects', projectsError as Error);
-          throw createExternalServiceError('Deepgram', 'Failed to access Deepgram projects');
-        }
-
-        projectId = projects.projects[0]?.project_id;
-
-        if (!projectId) {
-          throw createConfigurationError('No project ID found in Deepgram projects');
-        }
-      }
-
-      // Generate a project token with configurable expiry
-      const { result: projectTokenResponse, error: keyError } = await this.deepgram.manage.createProjectKey(
-        projectId,
-        {
-          comment: `BFF Token for user ${userId}${sessionId ? ` session ${sessionId}` : ''} (${config.deepgramTokenTtlMinutes}min TTL)`,
-          scopes: ['usage:read', 'usage:write'],
-          time_to_live_in_seconds: expiresIn,
-        },
-      );
-
-      if (keyError || !projectTokenResponse?.key) {
-        logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to create project key', keyError as Error);
+      if (tokenError || !tokenResponse) {
+        logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to grant token', tokenError as Error);
         throw createDeepgramTokenError('Failed to generate Deepgram token', { userId, sessionId });
       }
 
+      // SDK v4+ returns { access_token: string, expires_in: number }
+      const token = (tokenResponse as { access_token?: string }).access_token;
+
+      if (!token || typeof token !== 'string') {
+        throw createDeepgramTokenError(
+          `Token response missing access_token: ${JSON.stringify(tokenResponse)}`,
+          { userId, sessionId }
+        );
+      }
+
       return {
-        token: projectTokenResponse.key,
+        token,
         expiresIn,
         expiresAt: expiresAt.toISOString(),
       };
