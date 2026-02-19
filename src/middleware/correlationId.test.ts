@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Request, Response, NextFunction } from 'express';
-import { correlationIdMiddleware } from './correlationId';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Request, Response, NextFunction } from "express";
+import { correlationIdMiddleware } from "./correlationId";
 
-describe('correlationId Middleware', () => {
+describe("correlationId Middleware", () => {
   let mockRequest: Partial<Request>;
   let mockResponse: Partial<Response>;
   let mockNext: NextFunction;
@@ -16,14 +16,14 @@ describe('correlationId Middleware', () => {
     };
 
     mockResponse = {
-      setHeader: mockSetHeader,
+      setHeader: mockSetHeader as unknown as Response["setHeader"],
     };
 
     mockNext = vi.fn();
   });
 
-  describe('correlation ID generation', () => {
-    it('should generate a new correlation ID when no header is present', () => {
+  describe("correlation ID generation", () => {
+    it("should generate a new correlation ID when no header is present", () => {
       correlationIdMiddleware(
         mockRequest as Request,
         mockResponse as Response,
@@ -32,13 +32,13 @@ describe('correlationId Middleware', () => {
 
       // Should have generated and attached a correlation ID
       expect(mockRequest.correlationId).toBeDefined();
-      expect(typeof mockRequest.correlationId).toBe('string');
+      expect(typeof mockRequest.correlationId).toBe("string");
       expect(mockRequest.correlationId).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       );
     });
 
-    it('should generate different IDs for different requests', () => {
+    it("should generate different IDs for different requests", () => {
       correlationIdMiddleware(
         mockRequest as Request,
         mockResponse as Response,
@@ -61,11 +61,11 @@ describe('correlationId Middleware', () => {
     });
   });
 
-  describe('correlation ID extraction from headers', () => {
-    it('should use existing X-Correlation-ID header', () => {
-      const existingId = 'test-correlation-id-123';
+  describe("correlation ID extraction from headers", () => {
+    it("should use existing X-Correlation-ID header", () => {
+      const existingId = "test-correlation-id-123";
       mockRequest.headers = {
-        'x-correlation-id': existingId,
+        "x-correlation-id": existingId,
       };
 
       correlationIdMiddleware(
@@ -77,10 +77,10 @@ describe('correlationId Middleware', () => {
       expect(mockRequest.correlationId).toBe(existingId);
     });
 
-    it('should use existing X-Request-ID header', () => {
-      const existingId = 'test-request-id-456';
+    it("should use existing X-Request-ID header", () => {
+      const existingId = "test-request-id-456";
       mockRequest.headers = {
-        'x-request-id': existingId,
+        "x-request-id": existingId,
       };
 
       correlationIdMiddleware(
@@ -92,13 +92,13 @@ describe('correlationId Middleware', () => {
       expect(mockRequest.correlationId).toBe(existingId);
     });
 
-    it('should prioritize X-Correlation-ID over X-Request-ID', () => {
-      const correlationId = 'correlation-123';
-      const requestId = 'request-456';
+    it("should prioritize X-Correlation-ID over X-Request-ID", () => {
+      const correlationId = "correlation-123";
+      const requestId = "request-456";
 
       mockRequest.headers = {
-        'x-correlation-id': correlationId,
-        'x-request-id': requestId,
+        "x-correlation-id": correlationId,
+        "x-request-id": requestId,
       };
 
       correlationIdMiddleware(
@@ -110,9 +110,9 @@ describe('correlationId Middleware', () => {
       expect(mockRequest.correlationId).toBe(correlationId);
     });
 
-    it('should handle array values in headers by using first value', () => {
+    it("should handle array values in headers by using first value", () => {
       mockRequest.headers = {
-        'x-correlation-id': ['first-id', 'second-id'],
+        "x-correlation-id": ["first-id", "second-id"],
       };
 
       correlationIdMiddleware(
@@ -123,13 +123,13 @@ describe('correlationId Middleware', () => {
 
       // Should generate a new ID if header is an array (not a string)
       expect(mockRequest.correlationId).toBeDefined();
-      expect(typeof mockRequest.correlationId).toBe('string');
+      expect(typeof mockRequest.correlationId).toBe("string");
       expect(mockRequest.correlationId).toMatch(/^[0-9a-f]{8}-/);
     });
   });
 
-  describe('response headers', () => {
-    it('should set X-Correlation-ID in response headers', () => {
+  describe("response headers", () => {
+    it("should set X-Correlation-ID in response headers", () => {
       correlationIdMiddleware(
         mockRequest as Request,
         mockResponse as Response,
@@ -137,15 +137,15 @@ describe('correlationId Middleware', () => {
       );
 
       expect(mockSetHeader).toHaveBeenCalledWith(
-        'X-Correlation-ID',
+        "X-Correlation-ID",
         mockRequest.correlationId,
       );
     });
 
-    it('should set response header with existing correlation ID', () => {
-      const existingId = 'existing-correlation-id';
+    it("should set response header with existing correlation ID", () => {
+      const existingId = "existing-correlation-id";
       mockRequest.headers = {
-        'x-correlation-id': existingId,
+        "x-correlation-id": existingId,
       };
 
       correlationIdMiddleware(
@@ -154,12 +154,15 @@ describe('correlationId Middleware', () => {
         mockNext,
       );
 
-      expect(mockSetHeader).toHaveBeenCalledWith('X-Correlation-ID', existingId);
+      expect(mockSetHeader).toHaveBeenCalledWith(
+        "X-Correlation-ID",
+        existingId,
+      );
     });
   });
 
-  describe('middleware flow', () => {
-    it('should call next() to continue the middleware chain', () => {
+  describe("middleware flow", () => {
+    it("should call next() to continue the middleware chain", () => {
       correlationIdMiddleware(
         mockRequest as Request,
         mockResponse as Response,
@@ -170,7 +173,7 @@ describe('correlationId Middleware', () => {
       expect(mockNext).toHaveBeenCalledWith();
     });
 
-    it('should not throw errors on missing headers object', () => {
+    it("should not throw errors on missing headers object", () => {
       mockRequest.headers = undefined as unknown as typeof mockRequest.headers;
 
       expect(() => {
@@ -186,15 +189,16 @@ describe('correlationId Middleware', () => {
     });
   });
 
-  describe('UUID format validation', () => {
-    it('should generate valid UUID v4 format', () => {
+  describe("UUID format validation", () => {
+    it("should generate valid UUID v4 format", () => {
       correlationIdMiddleware(
         mockRequest as Request,
         mockResponse as Response,
         mockNext,
       );
 
-      const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const uuidV4Regex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       expect(mockRequest.correlationId).toMatch(uuidV4Regex);
     });
   });

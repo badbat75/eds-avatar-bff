@@ -1,23 +1,23 @@
-import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
-import { DeepgramTokenService } from './deepgram';
-import { createClient } from '@deepgram/sdk';
-import { AppError } from '../middleware/errorHandler';
+import { describe, it, expect, vi, beforeEach, Mock } from "vitest";
+import { DeepgramTokenService } from "./deepgram";
+import { createClient } from "@deepgram/sdk";
+import { AppError } from "../middleware/errorHandler";
 
 // Mock the Deepgram SDK
-vi.mock('@deepgram/sdk', () => ({
+vi.mock("@deepgram/sdk", () => ({
   createClient: vi.fn(),
 }));
 
 // Mock the logger
-vi.mock('./logger', () => ({
+vi.mock("./logger", () => ({
   logError: vi.fn(),
   logInfo: vi.fn(),
   LOG_CONTEXTS: {
-    DEEPGRAM: 'deepgram',
+    DEEPGRAM: "deepgram",
   },
 }));
 
-describe('DeepgramTokenService', () => {
+describe("DeepgramTokenService", () => {
   let service: DeepgramTokenService;
   let mockDeepgramClient: any;
 
@@ -44,125 +44,111 @@ describe('DeepgramTokenService', () => {
     service = new DeepgramTokenService();
   });
 
-  describe('generateProjectToken', () => {
-    it('should successfully generate a project token', async () => {
-      const mockProjects = {
-        projects: [{ project_id: 'test-project-id' }],
-      };
-
-      const mockKeyResponse = {
-        key: 'test-deepgram-key',
-        key_id: 'test-key-id',
-        member_id: 'test-member-id',
-      };
-
-      mockDeepgramClient.manage.getProjects.mockResolvedValue({
-        result: mockProjects,
+  describe("generateProjectToken", () => {
+    it("should successfully generate a token via grantToken", async () => {
+      mockDeepgramClient.auth.grantToken.mockResolvedValue({
+        result: { access_token: "test-deepgram-token", expires_in: 900 },
         error: null,
       });
 
-      mockDeepgramClient.manage.createProjectKey.mockResolvedValue({
-        result: mockKeyResponse,
-        error: null,
-      });
-
-      const result = await service.generateProjectToken('test-user-123', 'session-abc');
-
-      expect(result).toHaveProperty('token', 'test-deepgram-key');
-      expect(result).toHaveProperty('expiresIn', 900); // 15 minutes in seconds
-      expect(result).toHaveProperty('expiresAt');
-      expect(mockDeepgramClient.manage.getProjects).toHaveBeenCalled();
-      expect(mockDeepgramClient.manage.createProjectKey).toHaveBeenCalledWith(
-        'test-project-id',
-        expect.objectContaining({
-          scopes: ['usage:read', 'usage:write'],
-          time_to_live_in_seconds: 900,
-        }),
+      const result = await service.generateProjectToken(
+        "test-user-123",
+        "session-abc",
       );
+
+      expect(result).toHaveProperty("token", "test-deepgram-token");
+      expect(result).toHaveProperty("expiresIn", 900); // 15 minutes in seconds
+      expect(result).toHaveProperty("expiresAt");
+      expect(mockDeepgramClient.auth.grantToken).toHaveBeenCalled();
     });
 
-    it('should throw AppError if no projects are found', async () => {
-      mockDeepgramClient.manage.getProjects.mockResolvedValue({
-        result: { projects: [] },
-        error: null,
-      });
-
-      await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(AppError);
-      await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(
-        'Failed to access Deepgram projects',
-      );
-    });
-
-    it('should throw AppError if projects API fails', async () => {
-      mockDeepgramClient.manage.getProjects.mockResolvedValue({
+    it("should throw AppError if grantToken returns error", async () => {
+      mockDeepgramClient.auth.grantToken.mockResolvedValue({
         result: null,
-        error: new Error('API Error'),
+        error: new Error("Grant failed"),
       });
 
-      await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(AppError);
+      await expect(
+        service.generateProjectToken("test-user-123"),
+      ).rejects.toThrow(AppError);
+      await expect(
+        service.generateProjectToken("test-user-123"),
+      ).rejects.toThrow("Failed to generate Deepgram token");
     });
 
-    it('should throw AppError if key creation fails', async () => {
-      mockDeepgramClient.manage.getProjects.mockResolvedValue({
-        result: { projects: [{ project_id: 'test-project-id' }] },
+    it("should throw AppError if grantToken returns no result", async () => {
+      mockDeepgramClient.auth.grantToken.mockResolvedValue({
+        result: null,
         error: null,
       });
 
-      mockDeepgramClient.manage.createProjectKey.mockResolvedValue({
-        result: null,
-        error: new Error('Key creation failed'),
-      });
-
-      await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(AppError);
-      await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(
-        'Failed to generate Deepgram token',
-      );
+      await expect(
+        service.generateProjectToken("test-user-123"),
+      ).rejects.toThrow(AppError);
     });
 
-    it('should handle 401 unauthorized error', async () => {
-      mockDeepgramClient.manage.getProjects.mockRejectedValue({
+    it("should throw AppError if access_token is missing from result", async () => {
+      mockDeepgramClient.auth.grantToken.mockResolvedValue({
+        result: { expires_in: 900 },
+        error: null,
+      });
+
+      await expect(
+        service.generateProjectToken("test-user-123"),
+      ).rejects.toThrow(AppError);
+      await expect(
+        service.generateProjectToken("test-user-123"),
+      ).rejects.toThrow("Token response missing access_token");
+    });
+
+    it("should handle 401 unauthorized error", async () => {
+      mockDeepgramClient.auth.grantToken.mockRejectedValue({
         status: 401,
-        message: 'Unauthorized',
+        message: "Unauthorized",
       });
 
-      await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(
-        'Invalid Deepgram API key',
-      );
+      await expect(
+        service.generateProjectToken("test-user-123"),
+      ).rejects.toThrow("Invalid Deepgram API key");
     });
 
-    it('should handle 429 rate limit error', async () => {
-      mockDeepgramClient.manage.getProjects.mockRejectedValue({
+    it("should handle 429 rate limit error", async () => {
+      mockDeepgramClient.auth.grantToken.mockRejectedValue({
         status: 429,
-        message: 'Too Many Requests',
+        message: "Too Many Requests",
       });
 
-      await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(
-        'Deepgram rate limit exceeded',
-      );
+      await expect(
+        service.generateProjectToken("test-user-123"),
+      ).rejects.toThrow("Deepgram rate limit exceeded");
     });
 
-    it('should handle 4xx client errors', async () => {
-      mockDeepgramClient.manage.getProjects.mockRejectedValue({
+    it("should handle 4xx client errors", async () => {
+      mockDeepgramClient.auth.grantToken.mockRejectedValue({
         status: 400,
-        message: 'Bad request',
+        message: "Bad request",
       });
 
-      await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(
-        'External service error (Deepgram): Bad request',
-      );
+      await expect(
+        service.generateProjectToken("test-user-123"),
+      ).rejects.toThrow("External service error (Deepgram): Bad request");
     });
 
-    it('should handle generic errors without status', async () => {
-      mockDeepgramClient.manage.getProjects.mockRejectedValue(new Error('Network error'));
+    it("should handle generic errors without status", async () => {
+      mockDeepgramClient.auth.grantToken.mockRejectedValue(
+        new Error("Network error"),
+      );
 
-      await expect(service.generateProjectToken('test-user-123')).rejects.toThrow(AppError);
+      await expect(
+        service.generateProjectToken("test-user-123"),
+      ).rejects.toThrow(AppError);
     });
   });
 
-  describe('generateAccessToken', () => {
-    it('should successfully generate an access token', async () => {
+  describe("generateAccessToken", () => {
+    it("should successfully generate an access token", async () => {
       const mockTokenResponse = {
-        access_token: 'test-access-token',
+        access_token: "test-access-token",
         expires_in: 30,
       };
 
@@ -173,110 +159,73 @@ describe('DeepgramTokenService', () => {
 
       const result = await service.generateAccessToken();
 
-      expect(result).toHaveProperty('token', 'test-access-token');
-      expect(result).toHaveProperty('expiresIn', 30);
-      expect(result).toHaveProperty('expiresAt');
+      expect(result).toHaveProperty("token", "test-access-token");
+      expect(result).toHaveProperty("expiresIn", 30);
+      expect(result).toHaveProperty("expiresAt");
       expect(mockDeepgramClient.auth.grantToken).toHaveBeenCalled();
     });
 
-    it('should throw AppError if token generation fails', async () => {
+    it("should throw AppError if token generation fails", async () => {
       mockDeepgramClient.auth.grantToken.mockResolvedValue({
         result: null,
-        error: new Error('Grant failed'),
+        error: new Error("Grant failed"),
       });
 
       await expect(service.generateAccessToken()).rejects.toThrow(AppError);
-      await expect(service.generateAccessToken()).rejects.toThrow('Failed to generate access token');
+      await expect(service.generateAccessToken()).rejects.toThrow(
+        "Failed to generate access token",
+      );
     });
   });
 
-  describe('validateToken', () => {
-    it('should return true for valid token', async () => {
+  describe("validateToken", () => {
+    it("should return true for valid token", async () => {
       mockDeepgramClient.manage.getTokenDetails.mockResolvedValue({
-        result: { token_id: 'valid-token-id' },
+        result: { token_id: "valid-token-id" },
         error: null,
       });
 
-      const result = await service.validateToken('valid-token');
+      const result = await service.validateToken("valid-token");
 
       expect(result).toBe(true);
     });
 
-    it('should return false for invalid token', async () => {
+    it("should return false for invalid token", async () => {
       mockDeepgramClient.manage.getTokenDetails.mockResolvedValue({
         result: null,
-        error: new Error('Invalid token'),
+        error: new Error("Invalid token"),
       });
 
-      const result = await service.validateToken('invalid-token');
+      const result = await service.validateToken("invalid-token");
 
       expect(result).toBe(false);
     });
 
-    it('should return false when validation throws error', async () => {
-      mockDeepgramClient.manage.getTokenDetails.mockRejectedValue(new Error('Network error'));
+    it("should return false when validation throws error", async () => {
+      mockDeepgramClient.manage.getTokenDetails.mockRejectedValue(
+        new Error("Network error"),
+      );
 
-      const result = await service.validateToken('error-token');
+      const result = await service.validateToken("error-token");
 
       expect(result).toBe(false);
     });
   });
 
-  describe('getTokenTtlMinutes', () => {
-    it('should return the configured TTL in minutes', () => {
+  describe("getTokenTtlMinutes", () => {
+    it("should return the configured TTL in minutes", () => {
       const ttl = service.getTokenTtlMinutes();
 
       expect(ttl).toBe(15);
-      expect(typeof ttl).toBe('number');
+      expect(typeof ttl).toBe("number");
     });
   });
 
-  describe('getConfiguredProjectId', () => {
-    it('should return undefined when no project ID is configured', () => {
+  describe("getConfiguredProjectId", () => {
+    it("should return undefined when no project ID is configured", () => {
       const projectId = service.getConfiguredProjectId();
 
       expect(projectId).toBeUndefined();
-    });
-  });
-
-  describe('generateProjectToken with configured project ID', () => {
-    it('should use configured project ID when available', async () => {
-      // Mock the config to have a project ID
-      const configModule = await import('../config/environment.js');
-      const originalProjectId = configModule.config.deepgramProjectId;
-
-      // Set a configured project ID
-      (configModule.config as any).deepgramProjectId = 'configured-project-id';
-
-      const mockKeyResponse = {
-        key: 'test-deepgram-key',
-        key_id: 'test-key-id',
-        member_id: 'test-member-id',
-      };
-
-      mockDeepgramClient.manage.createProjectKey.mockResolvedValue({
-        result: mockKeyResponse,
-        error: null,
-      });
-
-      // Create a new service instance to pick up the config change
-      const newService = new DeepgramTokenService();
-      const result = await newService.generateProjectToken('test-user-123');
-
-      expect(result).toHaveProperty('token', 'test-deepgram-key');
-      // Should NOT call getProjects when project ID is configured
-      expect(mockDeepgramClient.manage.getProjects).not.toHaveBeenCalled();
-      // Should use the configured project ID
-      expect(mockDeepgramClient.manage.createProjectKey).toHaveBeenCalledWith(
-        'configured-project-id',
-        expect.objectContaining({
-          scopes: ['usage:read', 'usage:write'],
-          time_to_live_in_seconds: 900,
-        }),
-      );
-
-      // Restore original value
-      (configModule.config as any).deepgramProjectId = originalProjectId;
     });
   });
 });
