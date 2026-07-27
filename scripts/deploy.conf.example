@@ -10,6 +10,8 @@ SSH_PORT=22
 REMOTE_DEPLOY_DIR=/var/www/eds-avatar-bff
 
 # Deployment User Settings
+# Must match the owner of REMOTE_DEPLOY_DIR and the systemd unit's User=, otherwise
+# every file operation fails with "Permission denied". SSH_USER only needs sudo.
 DEPLOY_USER=deploy
 
 # Local Build Settings
