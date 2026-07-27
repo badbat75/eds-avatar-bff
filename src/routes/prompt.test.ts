@@ -3,7 +3,7 @@ import request from 'supertest';
 import express, { Express } from 'express';
 import promptRoutes from './prompt';
 import { promptService } from '../services/promptService';
-import { createMockToken, mockPromptContent } from '../test/helpers';
+import { mockPromptContent } from '../test/helpers';
 
 // Mock authentication middleware
 vi.mock('../middleware/auth', () => ({
@@ -54,10 +54,8 @@ describe('Prompt Routes', () => {
 
       vi.mocked(promptService.getPrompt).mockResolvedValue(mockPromptData);
 
-      const token = createMockToken();
       const response = await request(app)
-        .get('/api/prompt/assistant')
-        .set('Authorization', `Bearer ${token}`);
+        .get('/api/prompt/assistant');
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('success', true);
@@ -77,8 +75,7 @@ describe('Prompt Routes', () => {
 
       vi.mocked(promptService.getPrompt).mockResolvedValue(mockPromptData);
 
-      const token = createMockToken();
-      await request(app).get('/api/prompt/assistant').set('Authorization', `Bearer ${token}`);
+      await request(app).get('/api/prompt/assistant');
 
       expect(promptService.getPrompt).toHaveBeenCalled();
     });
@@ -86,10 +83,8 @@ describe('Prompt Routes', () => {
     it('should return 500 if prompt loading fails', async () => {
       vi.mocked(promptService.getPrompt).mockRejectedValue(new Error('Failed to load prompt'));
 
-      const token = createMockToken();
       const response = await request(app)
-        .get('/api/prompt/assistant')
-        .set('Authorization', `Bearer ${token}`);
+        .get('/api/prompt/assistant');
 
       expect(response.status).toBe(500);
     });
@@ -105,8 +100,7 @@ describe('Prompt Routes', () => {
 
       vi.mocked(promptService.getPrompt).mockResolvedValue(mockPromptData);
 
-      const token = createMockToken();
-      const response = await request(app).get('/api/prompt/info').set('Authorization', `Bearer ${token}`);
+      const response = await request(app).get('/api/prompt/info');
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('success', true);
@@ -127,8 +121,7 @@ describe('Prompt Routes', () => {
 
       vi.mocked(promptService.getPrompt).mockResolvedValue(mockPromptData);
 
-      const token = createMockToken();
-      const response = await request(app).get('/api/prompt/info').set('Authorization', `Bearer ${token}`);
+      const response = await request(app).get('/api/prompt/info');
 
       expect(response.body.data.promptLength).toBe(12); // length of "Short prompt"
     });

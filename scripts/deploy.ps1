@@ -207,8 +207,14 @@ function Invoke-SSHCommand {
 
     $sshArgs += "$($config['SSH_USER'])@$($config['SSH_HOST'])"
 
-    # Wrap command with logging
-    $wrappedCommand = "echo '=== $StepName started at \$(date) ===' >> $remoteLogFile && " +
+    # Wrap command with logging.
+    # 'set -o pipefail' is required, not cosmetic: the exit status of a pipeline is the
+    # status of its LAST element, so without it every remote failure is hidden behind
+    # tee's success and the deployment reports "completed" while nothing changed on the
+    # server. Kept as a separate ';' statement so a shell without pipefail degrades to
+    # the old behaviour instead of aborting the deployment.
+    $wrappedCommand = "set -o pipefail; " +
+                     "echo '=== $StepName started at \$(date) ===' >> $remoteLogFile && " +
                      "($Command) 2>&1 | tee -a $remoteLogFile && " +
                      "echo '=== $StepName completed at \$(date) ===' >> $remoteLogFile"
 

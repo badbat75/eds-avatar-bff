@@ -1,23 +1,26 @@
 # EDS Avatar BFF (Backend for Frontend)
 
-A secure JWT-authenticated API service that generates time-bounded Deepgram tokens for the EDS Avatar frontend application. Built with Auth0 integration and enterprise-grade security features.
+A secure API service that generates time-bounded Deepgram tokens and serves AI prompts for the EDS Avatar frontend application. It verifies no token of its own: the bb-auth reverse-proxy gate authenticates every request before it arrives, and nginx injects the authorized email as an identity header.
 
 ## Features
 
-- **🔐 JWT Authentication**: Multi-algorithm JWT token validation (RS256, HS256) with Auth0 integration
+- **🔐 Gate Authentication**: Trusts the identity header injected by nginx after the bb-auth `auth_request` — no JWT, no JWKS, no shared secret
+- **🚪 Loopback-Only Binding**: Refuses to start on a non-loopback host, keeping the trusted header unreachable from off-host
 - **⏰ Deepgram Token Management**: Generates secure 15-minute time-bounded Deepgram project tokens
-- **🛡️ Advanced Security**: JWKS caching, rate limiting, CORS, and Helmet.js security headers
-- **🚀 High Performance**: Configurable caching and connection pooling for optimal throughput
-- **📊 Health Monitoring**: Comprehensive health check and readiness endpoints
+- **📝 Prompt Management**: Serves the AI assistant prompt from disk, hot-reloaded when the file changes
+- **🛡️ Advanced Security**: Rate limiting and Helmet.js security headers
+- **📊 Health Monitoring**: Health check with cached Deepgram connectivity probe
 - **🔧 TypeScript**: Full TypeScript support with strict type checking
-- **🌐 Auth0 Integration**: Native support for Auth0 RS256 tokens with dynamic key fetching
+- **📚 OpenAPI Docs**: Swagger UI served at `/api/docs`
 
 ## Quick Start
 
 ### Prerequisites
+
 - Node.js 18+
 - npm or yarn
 - Deepgram API key
+- An nginx vhost wired to the bb-auth gate (see [Authentication](#authentication))
 
 ### Installation
 
@@ -28,34 +31,33 @@ npm install
 ### Configuration
 
 1. Copy the example environment file:
+
 ```bash
 cp .env.example .env
 ```
 
 2. Configure your environment variables:
+
 ```env
 # Server Configuration
+# HOST must be loopback: the identity header is only trustworthy while the reverse
+# proxy that sets it is the sole reachable path to this port. The service refuses
+# to start otherwise.
+HOST=127.0.0.1
 PORT=3001
 NODE_ENV=development
+LOG_LEVEL=debug
 
-# JWT Authentication (Auth0 Integration)
-JWT_SECRET=your-super-secret-jwt-key-here-at-least-32-chars
-JWT_ISSUER=https://your-tenant.auth0.com/
-JWT_AUDIENCE=https://your-tenant.auth0.com/api/v2/
-
-# JWT Cipher Configuration
-JWT_ALGORITHM=RS256
-JWT_VERIFY_ALGORITHMS=RS256,HS256
-JWKS_CACHE_MAX_ENTRIES=5
-JWKS_CACHE_MAX_AGE_MS=600000
-JWKS_REQUEST_TIMEOUT_MS=30000
+# Authentication (bb-auth reverse-proxy gate)
+# Header name nginx sets with proxy_set_header in the gated location
+GATE_IDENTITY_HEADER=x-auth-email
 
 # Deepgram Configuration
 DEEPGRAM_API_KEY=your-deepgram-api-key-here
+# DEEPGRAM_PROJECT_ID=          # optional, defaults to the first project
 DEEPGRAM_TOKEN_TTL_MINUTES=15
 
-# Security Configuration
-ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
+# Rate Limiting
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
 ```
@@ -69,9 +71,15 @@ npm run dev
 # Type checking
 npm run typecheck
 
+# Unit tests (Vitest)
+npm test
+
 # Linting
 npm run lint
 ```
+
+> ⚠️ `npm run lint` currently fails: the repo ships an `.eslintrc.json`, but ESLint 9 expects
+> the flat-config format (`eslint.config.js`). Use `npm run typecheck` until the config is migrated.
 
 ### Production
 
@@ -85,25 +93,44 @@ npm start
 
 ## API Endpoints
 
+Interactive documentation is available at `/api/docs`. The OpenAPI security scheme is
+`GateIdentity` (`apiKey`, `in: header`), named after `GATE_IDENTITY_HEADER`.
+
 ### Authentication
-All protected endpoints require a valid JWT token in the `Authorization` header using the `Bearer` scheme. The BFF supports multiple JWT algorithms and integrates seamlessly with Auth0.
+
+Protected endpoints require the gate identity header (`GATE_IDENTITY_HEADER`, default
+`x-auth-email`). Callers never set it: nginx overwrites it on every request it forwards,
+and omits it entirely when the gate returned no identity. There is no bearer token —
+an `Authorization` header is ignored, and clients must not send one. Browser requests are
+authenticated by the gate's HttpOnly session cookie, so frontend `fetch` calls use
+`credentials: 'include'` against the same origin.
+
+**Why this is safe, and what it depends on:** `proxy_set_header` overwrites any
+client-supplied identity header and omits it when the gate returned nothing, so a caller
+cannot forge an identity *through nginx*. That guarantee holds only while nginx is the sole
+reachable path — anything able to connect to the port directly could set the header itself.
+This is why `HOST` must be loopback (`127.0.0.1`, `::1` or `localhost`): `validateConfig()`
+throws at startup otherwise.
 
 ---
 
 ### 🔐 Token Management
 
 #### `POST /api/token/deepgram`
+
 Generates a new time-bounded Deepgram project token for voice agent connections.
 
 **Authentication:** Required
 
 **Headers:**
+
 ```http
-Authorization: Bearer <auth0-jwt-token>
+X-Auth-Email: user@example.com   # injected by nginx, never by the client
 Content-Type: application/json
 ```
 
 **Request Body:**
+
 ```json
 {
   "sessionId": "optional-session-identifier"
@@ -111,6 +138,7 @@ Content-Type: application/json
 ```
 
 **Response (200 OK):**
+
 ```json
 {
   "token": "d53b1a16ba398618d5a28948ac99be3e1e6f6d07",
@@ -120,51 +148,93 @@ Content-Type: application/json
 ```
 
 **Error Responses:**
-- `401 Unauthorized`: Missing or invalid JWT token
-- `403 Forbidden`: JWT validation failed
+
+- `400 Bad Request`: Invalid request body (e.g. a `sessionId` longer than 100 characters)
+- `401 Unauthorized`: `Missing x-auth-email identity header`
 - `429 Too Many Requests`: Rate limit exceeded
 - `500 Internal Server Error`: Deepgram token generation failed
 
 ---
 
 #### `GET /api/token/validate`
-Validates the current JWT token and returns user information.
+
+Returns the identity the gate established for this request. This is also how the
+frontend answers "who am I": the session cookie is HttpOnly, so the page cannot read it.
 
 **Authentication:** Required
 
 **Headers:**
+
 ```http
-Authorization: Bearer <auth0-jwt-token>
+X-Auth-Email: user@example.com   # injected by nginx, never by the client
 ```
 
 **Response (200 OK):**
+
 ```json
 {
   "valid": true,
   "user": {
-    "id": "email|6899fed0f215c1cc4a28db25"
-  },
-  "expiresAt": "2025-01-16T14:19:36.000Z"
+    "id": "user@example.com",
+    "email": "user@example.com"
+  }
 }
 ```
 
+The gate forwards an email and nothing else, so there is no `name` claim — and no
+`expiresAt`, since the session lives in a cookie this service never sees.
+
 **Error Responses:**
-- `401 Unauthorized`: Missing authorization header
-- `403 Forbidden`: Invalid token, expired, or malformed
+
+- `401 Unauthorized`: `Missing x-auth-email identity header`
+
+---
+
+### 💬 Prompt Management
+
+#### `GET /api/prompt/assistant`
+
+Returns the current AI assistant prompt. The file is watched and reloaded on change.
+
+**Authentication:** Required
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "prompt": "You are ...",
+    "lastModified": "2025-01-15T14:11:18.870Z",
+    "version": "1.0.0"
+  },
+  "timestamp": "2025-01-15T14:11:18.870Z"
+}
+```
+
+#### `GET /api/prompt/info`
+
+Returns metadata about the prompt configuration: file path, last modified, version and
+prompt length. Prompts can only be updated by editing the file directly on the server.
+
+**Authentication:** Required
 
 ---
 
 ### 📊 Health & Monitoring
 
 #### `GET /api/health`
-Comprehensive health check endpoint with system information.
+
+Health check with configuration validation and Deepgram connectivity. The connectivity
+probe is cached for one minute to avoid overloading the Deepgram API.
 
 **Authentication:** None
 
 **Response (200 OK):**
+
 ```json
 {
-  "status": "ok",
+  "status": "healthy",
   "timestamp": "2025-01-15T14:11:18.870Z",
   "service": "eds-avatar-bff",
   "version": "1.0.0",
@@ -176,118 +246,106 @@ Comprehensive health check endpoint with system information.
     "heapUsed": 15435992,
     "external": 4302667,
     "arrayBuffers": 95985
-  }
-}
-```
-
----
-
-#### `GET /api/health/ready`
-Kubernetes/Docker readiness probe endpoint.
-
-**Authentication:** None
-
-**Response (200 OK):**
-```json
-{
-  "status": "ready",
-  "timestamp": "2025-01-15T14:11:18.870Z",
+  },
   "checks": {
-    "deepgram": "configured",
-    "jwt": "configured"
+    "config": true,
+    "deepgram": true
   }
 }
 ```
 
-**Response (503 Service Unavailable):**
-```json
-{
-  "status": "not ready",
-  "timestamp": "2025-01-15T14:11:18.870Z",
-  "message": "Required services not configured"
-}
-```
+**Response (503 Service Unavailable):** same body with `"status": "degraded"` and the
+failing entry in `checks` set to `false`. An unexpected failure returns `503` with
+`"status": "error"` and a `message` field instead.
 
 ---
 
 ### 🚫 Error Handling
 
-All API endpoints return consistent error responses:
+Errors raised by the application layer go through the shared error handler:
 
 ```json
 {
-  "error": "Error Type",
-  "message": "Detailed error description",
-  "timestamp": "2025-01-15T14:11:18.870Z"
+  "error": "Bad Request",
+  "message": "Validation failed: sessionId - sessionId must be 100 characters or less",
+  "statusCode": 400,
+  "code": "VALIDATION_FAILED"
+}
+```
+
+Some errors add an optional `context` object with extra metadata.
+
+The gate check runs before that handler and answers with just the two fields:
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Missing x-auth-email identity header"
 }
 ```
 
 **Common HTTP Status Codes:**
+
 - `400 Bad Request`: Invalid request body or parameters
-- `401 Unauthorized`: Authentication required
-- `403 Forbidden`: Authentication failed or insufficient permissions
+- `401 Unauthorized`: The gate forwarded no identity header
+- `404 Not Found`: Unknown route
 - `429 Too Many Requests`: Rate limit exceeded (includes `Retry-After` header)
 - `500 Internal Server Error`: Server-side error (details logged securely)
 
 ## 🛡️ Security Features
 
 ### Authentication & Authorization
-- **🔐 Multi-Algorithm JWT Support**: RS256, HS256, HS384, HS512, RS384, RS512, ES256, ES384, ES512
-- **🌐 Auth0 Integration**: Native JWKS endpoint integration with automatic key rotation
-- **⚡ JWKS Caching**: Configurable caching (1-100 entries, 1min-1hour TTL) for optimal performance
-- **🎯 Strict Validation**: Issuer, audience, algorithm, and expiration validation
+
+- **🔐 Proxy-Enforced Identity**: nginx overwrites the identity header on every proxied request, so a client cannot supply its own
+- **🚪 Loopback-Only Binding**: the service refuses to start on a non-loopback host, since a reachable port would let anyone set that header
+- **🧭 Loopback-Scoped Trust Proxy**: `trust proxy` is set to `loopback`, so `X-Forwarded-For` cannot be spoofed for rate limiting
 - **⏰ Time-Bounded Tokens**: Deepgram tokens with configurable TTL (1-1440 minutes)
 
 ### Network Security
-- **🚧 Rate Limiting**: Configurable per-IP rate limiting with sliding window
-- **🌍 CORS Protection**: Whitelist-based origin validation with preflight support
-- **🛡️ Security Headers**: Comprehensive Helmet.js security headers
-- **🔒 TLS Ready**: Production-ready for HTTPS/TLS termination
+
+- **🚧 Rate Limiting**: Configurable per-IP rate limiting on `/api/`
+- **🛡️ Security Headers**: Helmet.js headers with a strict CSP (relaxed only for the Swagger UI route)
+- **🌍 CORS**: **not** handled by this service — there is no `cors` middleware and no `cors` dependency. CORS headers belong to nginx; see [docs/NGINX_CORS_CONFIGURATION.md](docs/NGINX_CORS_CONFIGURATION.md)
+- **🔒 TLS Ready**: Production-ready for HTTPS/TLS termination at the proxy
 
 ### Data Protection
-- **✅ Input Validation**: Request body validation and sanitization
+
+- **✅ Input Validation**: Zod-based request body validation
 - **🤐 Secure Error Handling**: No sensitive information leakage in error responses
-- **📝 Audit Logging**: Request/response logging with configurable levels
-- **💾 Memory Safety**: Automatic cleanup and garbage collection monitoring
+- **📝 Audit Logging**: Request/response logging with configurable levels and correlation ids
+- **💾 Memory Safety**: Graceful shutdown plus uptime and memory reporting
 
 ## ⚙️ Environment Variables
 
 ### Core Server Settings
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
+| `HOST` | No | `127.0.0.1` | Bind address. **Must be loopback** (`127.0.0.1`, `::1`, `localhost`) - the service refuses to start otherwise |
 | `PORT` | No | `3001` | Server port number (1-65535) |
 | `NODE_ENV` | No | `development` | Runtime environment (development, production, test) |
+| `LOG_LEVEL` | No | `debug` in development, otherwise `info` | Log level: `trace`, `debug`, `info`, `warn`, `error`, `fatal` |
 
-### JWT Authentication
+### Authentication (bb-auth gate)
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `JWT_SECRET` | Yes | - | JWT signing secret (minimum 32 characters) |
-| `JWT_ISSUER` | Yes* | `eds-avatar-bff` | JWT issuer (Auth0 domain or BFF identifier) |
-| `JWT_AUDIENCE` | Yes* | `eds-avatar-frontend` | JWT audience (API identifier) |
-
-### JWT Cipher Configuration
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `JWT_ALGORITHM` | No | `RS256` | Primary JWT algorithm (RS256, HS256, etc.) |
-| `JWT_VERIFY_ALGORITHMS` | No | `RS256,HS256` | Comma-separated allowed algorithms |
-| `JWKS_CACHE_MAX_ENTRIES` | No | `5` | JWKS cache max entries (1-100) |
-| `JWKS_CACHE_MAX_AGE_MS` | No | `600000` | JWKS cache TTL in ms (1min-1hour) |
-| `JWKS_REQUEST_TIMEOUT_MS` | No | `30000` | JWKS fetch timeout in ms (5sec-1min) |
+| `GATE_IDENTITY_HEADER` | No | `x-auth-email` | Header carrying the gate-authenticated email; must match the `proxy_set_header` name in the nginx vhost. Lowercased on load and must not be empty |
 
 ### Deepgram Integration
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DEEPGRAM_API_KEY` | Yes | - | Deepgram API key from console.deepgram.com |
+| `DEEPGRAM_PROJECT_ID` | No | first project on the account | Explicit Deepgram project ID |
 | `DEEPGRAM_TOKEN_TTL_MINUTES` | No | `15` | Token expiration minutes (1-1440) |
 
-### Security & Performance
+### Rate Limiting
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ALLOWED_ORIGINS` | No | `http://localhost:8080` | CORS allowed origins (comma-separated) |
 | `RATE_LIMIT_WINDOW_MS` | No | `900000` | Rate limit window in ms (15 minutes) |
 | `RATE_LIMIT_MAX_REQUESTS` | No | `100` | Max requests per window per IP |
-
-**\*Required for Auth0 integration**
 
 ## Architecture
 
@@ -295,63 +353,62 @@ The BFF follows a clean architecture pattern:
 
 ```
 src/
-├── config/         # Configuration and environment handling
-├── middleware/     # Express middleware (auth, error handling)
-├── routes/         # API route handlers
+├── config/         # Environment validation and Swagger definition
+├── errors/         # Error catalog and factories
+├── middleware/     # Express middleware (gate auth, validation, errors, correlation id)
+├── routes/         # API route handlers (token, prompt, health)
+├── schemas/        # Zod request schemas
+├── services/       # Prompt service with file watching
 ├── types/          # TypeScript type definitions
-├── utils/          # Utility functions (Deepgram service)
+├── utils/          # Utility functions (Deepgram service, logger)
 └── index.ts        # Application entry point
 ```
 
 ## 🔗 Frontend Integration
 
 ### Authentication Flow
-1. **Frontend** authenticates with Auth0 using the React SDK
-2. **Auth0** returns an RS256 JWT token with your API audience
-3. **Frontend** uses the JWT token to request Deepgram tokens from the BFF
-4. **BFF** validates the JWT and returns time-bounded Deepgram tokens
+
+1. **Browser** requests the app; nginx runs an `auth_request` against the bb-auth gate
+2. **Gate** either approves (returning the authorized email) or redirects the browser to the shared login page
+3. **nginx** injects that email as `X-Auth-Email` on every request it proxies to the BFF
+4. **BFF** trusts the header, and returns time-bounded Deepgram tokens
 5. **Frontend** connects to Deepgram Voice Agent using the project token
+
+The frontend holds no token at all: its BFF calls are same-origin and carry the gate's
+HttpOnly session cookie. The frontend build, this service, and the nginx vhost must all
+be switched together.
 
 ### Example Implementation
 
-#### React Frontend Setup
-```typescript
-// auth0-config.ts
-import { Auth0Provider } from '@auth0/auth0-react';
+#### Discovering the current user
 
-const authConfig = {
-  domain: 'your-tenant.auth0.com',
-  clientId: 'your-client-id',
-  authorizationParams: {
-    audience: 'https://your-tenant.auth0.com/api/v2/',
-    scope: 'openid profile email offline_access'
+```typescript
+// No token, no Authorization header: the gate's session cookie is the credential
+const whoAmI = async () => {
+  const response = await fetch('/api/token/validate', {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`BFF Error: ${response.status} ${response.statusText}`);
   }
+
+  const { user } = await response.json();
+  return user; // { id, email }
 };
 ```
 
-#### JWT Token Management
-```typescript
-// Get Auth0 access token
-import { useAuth0 } from '@auth0/auth0-react';
-
-const { getAccessTokenSilently } = useAuth0();
-
-const auth0Token = await getAccessTokenSilently({
-  audience: 'https://your-tenant.auth0.com/api/v2/',
-});
-```
-
 #### BFF Integration
+
 ```typescript
 // Get Deepgram token from BFF
 const getDeepgramToken = async (sessionId?: string) => {
   try {
-    const response = await fetch('http://localhost:3001/api/token/deepgram', {
+    const response = await fetch('/api/token/deepgram', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${auth0Token}`,
-        'Content-Type': 'application/json',
-      },
+      // Same-origin call through nginx: the gate's session cookie is the credential
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
 
@@ -369,6 +426,7 @@ const getDeepgramToken = async (sessionId?: string) => {
 ```
 
 #### Deepgram Voice Agent Connection
+
 ```typescript
 // Connect to Deepgram Voice Agent
 const connectToVoiceAgent = async () => {
@@ -395,27 +453,20 @@ const connectToVoiceAgent = async () => {
 ```
 
 #### Error Handling
+
 ```typescript
-// Robust error handling with token refresh
-const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
-  let token = await getAccessTokenSilently();
+// A 401 means the gate session expired. There is no token to refresh: hand the browser
+// back to nginx, which bounces unauthenticated requests to the shared login page.
+const fetchViaGate = async (url: string, options: RequestInit = {}) => {
+  const response = await fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+  });
 
-  const makeRequest = (authToken: string) =>
-    fetch(url, {
-      ...options,
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
-
-  let response = await makeRequest(token);
-
-  // Retry once with fresh token on 401/403
-  if (response.status === 401 || response.status === 403) {
-    token = await getAccessTokenSilently({ cacheMode: 'off' });
-    response = await makeRequest(token);
+  if (response.status === 401) {
+    window.location.reload();
+    throw new Error('Gate session expired');
   }
 
   if (!response.ok) {
@@ -428,8 +479,10 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
 ```
 
 ### Production Considerations
-- **Token Refresh**: Implement automatic Auth0 token refresh before expiration
+
+- **Same Origin**: Serve the frontend and the BFF from the same nginx vhost so the gate cookie reaches every API call
+- **Session Expiry**: On a 401, let the browser re-authenticate against the gate rather than retrying
 - **Error Recovery**: Handle network errors and BFF unavailability gracefully
 - **Rate Limiting**: Respect BFF rate limits and implement exponential backoff
-- **Security**: Never log or expose JWT tokens in production
+- **Security**: Never log or expose Deepgram tokens or user emails in production
 - **Monitoring**: Track token generation success rates and latency

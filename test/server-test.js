@@ -85,8 +85,8 @@ async function runTests() {
     console.log('✅ Basic tests completed!\n');
     console.log('📝 Next steps:');
     console.log('   1. Add your Deepgram API key to .env file');
-    console.log('   2. Create JWT tokens for authentication');
-    console.log('   3. Test the Deepgram token generation endpoint with valid auth');
+    console.log('   2. Put the service behind nginx + the bb-auth gate');
+    console.log('   3. Test the Deepgram token generation endpoint through the proxy');
 
   } catch (error) {
     console.error('❌ Test failed:', error.message);

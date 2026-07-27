@@ -2,9 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   AppError,
   createAuthenticationError,
-  createInvalidTokenError,
-  createTokenExpiredError,
-  createMissingTokenError,
   createInsufficientPermissionsError,
   createValidationError,
   createMissingFieldError,
@@ -35,30 +32,6 @@ describe('Error Catalog', () => {
       expect(error.isOperational).toBe(true);
     });
 
-    it('should create invalid token error', () => {
-      const error = createInvalidTokenError();
-
-      expect(error.statusCode).toBe(401);
-      expect(error.code).toBe(ERROR_CODES.AUTH_INVALID_TOKEN);
-      expect(error.message).toBe('Invalid authentication token');
-    });
-
-    it('should create token expired error', () => {
-      const error = createTokenExpiredError();
-
-      expect(error.statusCode).toBe(401);
-      expect(error.code).toBe(ERROR_CODES.AUTH_TOKEN_EXPIRED);
-      expect(error.message).toBe('Authentication token has expired');
-    });
-
-    it('should create missing token error', () => {
-      const error = createMissingTokenError();
-
-      expect(error.statusCode).toBe(401);
-      expect(error.code).toBe(ERROR_CODES.AUTH_TOKEN_MISSING);
-      expect(error.message).toBe('No authentication token provided');
-    });
-
     it('should create insufficient permissions error', () => {
       const error = createInsufficientPermissionsError();
 
@@ -69,9 +42,9 @@ describe('Error Catalog', () => {
 
     it('should accept custom message and context', () => {
       const context = { userId: '123' };
-      const error = createInvalidTokenError('Custom token error', context);
+      const error = createAuthenticationError('Custom auth error', context);
 
-      expect(error.message).toBe('Custom token error');
+      expect(error.message).toBe('Custom auth error');
       expect(error.context).toEqual(context);
     });
   });
@@ -245,9 +218,6 @@ describe('Error Catalog', () => {
   describe('ERROR_CODES constant', () => {
     it('should contain all error codes', () => {
       expect(ERROR_CODES).toHaveProperty('AUTH_REQUIRED');
-      expect(ERROR_CODES).toHaveProperty('AUTH_INVALID_TOKEN');
-      expect(ERROR_CODES).toHaveProperty('AUTH_TOKEN_EXPIRED');
-      expect(ERROR_CODES).toHaveProperty('AUTH_TOKEN_MISSING');
       expect(ERROR_CODES).toHaveProperty('AUTH_INSUFFICIENT_PERMISSIONS');
       expect(ERROR_CODES).toHaveProperty('VALIDATION_FAILED');
       expect(ERROR_CODES).toHaveProperty('VALIDATION_MISSING_FIELD');

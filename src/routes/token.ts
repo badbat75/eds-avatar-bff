@@ -31,7 +31,7 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/DeepgramTokenResponse'
  *       401:
- *         description: Unauthorized - Missing or invalid JWT token
+ *         description: Unauthorized - Missing gate identity header
  *         content:
  *           application/json:
  *             schema:
@@ -56,7 +56,7 @@ router.post('/deepgram', authenticateToken, validateBody(deepgramTokenRequestSch
       const userId = req.user?.sub;
 
       if (!userId) {
-        throw createMissingFieldError('userId', { source: 'JWT token' });
+        throw createMissingFieldError('userId', { source: 'gate identity header' });
       }
 
       // Generate configurable TTL project token from Deepgram
@@ -87,8 +87,8 @@ router.post('/deepgram', authenticateToken, validateBody(deepgramTokenRequestSch
  * @openapi
  * /api/token/validate:
  *   get:
- *     summary: Validate JWT token
- *     description: Validates the current JWT token and returns user information
+ *     summary: Return the caller's identity
+ *     description: Reports the identity the bb-auth gate established for this request
  *     tags:
  *       - Token
  *     responses:
@@ -109,28 +109,29 @@ router.post('/deepgram', authenticateToken, validateBody(deepgramTokenRequestSch
  *                       type: string
  *                     email:
  *                       type: string
- *                     name:
- *                       type: string
- *                 expiresAt:
- *                   type: string
- *                   format: date-time
  *       401:
- *         description: Unauthorized - Invalid or expired token
+ *         description: Unauthorized - Missing gate identity header
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  */
 router.get('/validate', authenticateToken, (req: Request, res: Response) => {
-  // If we reach here, the JWT token is valid
+  // No expiry is reported: the session lives in a cookie this service never sees.
+  // The names are optional - the gate only has them when the id token did - so the
+  // composed display name is omitted rather than sent empty, leaving the client free
+  // to fall back to whatever it prefers.
+  const displayName = [req.user?.givenName, req.user?.familyName].filter(Boolean).join(' ');
+
   res.json({
     valid: true,
     user: {
       id: req.user?.sub,
       email: req.user?.email,
-      name: req.user?.name,
+      givenName: req.user?.givenName,
+      familyName: req.user?.familyName,
+      name: displayName || undefined,
     },
-    expiresAt: new Date(req.user!.exp * 1000).toISOString(),
   });
 });
 

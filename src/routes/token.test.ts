@@ -4,7 +4,6 @@ import express, { Express } from "express";
 import tokenRoutes from "./token";
 import { authenticateToken } from "../middleware/auth";
 import { deepgramTokenService } from "../utils/deepgram";
-import { createMockToken } from "../test/helpers";
 import { errorHandler } from "../middleware/errorHandler";
 
 // Mock authentication middleware
@@ -12,7 +11,8 @@ vi.mock("../middleware/auth", () => ({
   authenticateToken: vi.fn((req, res, next) => {
     req.user = {
       sub: "test-user-123",
-      exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+      email: "test-user-123",
+      iss: "bb-auth-gate",
     };
     next();
   }),
@@ -63,10 +63,8 @@ describe("Token Routes", () => {
         mockTokenData,
       );
 
-      const token = createMockToken();
       const response = await request(app)
         .post("/api/token/deepgram")
-        .set("Authorization", `Bearer ${token}`)
         .send({});
 
       expect(response.status).toBe(200);
@@ -86,10 +84,8 @@ describe("Token Routes", () => {
         mockTokenData,
       );
 
-      const token = createMockToken();
       await request(app)
         .post("/api/token/deepgram")
-        .set("Authorization", `Bearer ${token}`)
         .send({});
 
       expect(deepgramTokenService.generateProjectToken).toHaveBeenCalledWith(
@@ -109,10 +105,8 @@ describe("Token Routes", () => {
         mockTokenData,
       );
 
-      const token = createMockToken();
       await request(app)
         .post("/api/token/deepgram")
-        .set("Authorization", `Bearer ${token}`)
         .send({ sessionId: "session-abc-123" });
 
       expect(deepgramTokenService.generateProjectToken).toHaveBeenCalledWith(
@@ -126,10 +120,8 @@ describe("Token Routes", () => {
         new Error("Token generation failed"),
       );
 
-      const token = createMockToken();
       const response = await request(app)
         .post("/api/token/deepgram")
-        .set("Authorization", `Bearer ${token}`)
         .send({});
 
       expect(response.status).toBe(500);
@@ -148,11 +140,9 @@ describe("Token Routes", () => {
 
     it("should reject sessionId over 100 characters", async () => {
       const longSessionId = "a".repeat(101);
-      const token = createMockToken();
 
       const response = await request(app)
         .post("/api/token/deepgram")
-        .set("Authorization", `Bearer ${token}`)
         .send({ sessionId: longSessionId });
 
       expect(response.status).toBe(400);
@@ -160,11 +150,9 @@ describe("Token Routes", () => {
     });
 
     it("should reject non-string sessionId", async () => {
-      const token = createMockToken();
 
       const response = await request(app)
         .post("/api/token/deepgram")
-        .set("Authorization", `Bearer ${token}`)
         .send({ sessionId: 12345 });
 
       expect(response.status).toBe(400);
@@ -173,31 +161,68 @@ describe("Token Routes", () => {
   });
 
   describe("GET /api/token/validate", () => {
-    it("should return 200 with token details for authenticated user", async () => {
-      const token = createMockToken({
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
+    it("should return 200 with the gate identity", async () => {
       const response = await request(app)
-        .get("/api/token/validate")
-        .set("Authorization", `Bearer ${token}`);
+        .get("/api/token/validate");
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty("valid", true);
       expect(response.body).toHaveProperty("user");
       expect(response.body.user).toHaveProperty("id", "test-user-123");
-      expect(response.body).toHaveProperty("expiresAt");
+      expect(response.body.user).toHaveProperty("email", "test-user-123");
+      // No token, so no expiry to report
+      expect(response.body).not.toHaveProperty("expiresAt");
     });
 
     it("should include user information", async () => {
-      const token = createMockToken({
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
       const response = await request(app)
-        .get("/api/token/validate")
-        .set("Authorization", `Bearer ${token}`);
+        .get("/api/token/validate");
 
       expect(response.status).toBe(200);
       expect(response.body.user).toHaveProperty("id");
+    });
+
+    it("should compose a display name from the names the gate forwarded", async () => {
+      vi.mocked(authenticateToken).mockImplementationOnce((req, _res, next) => {
+        req.user = {
+          sub: "user@example.com",
+          email: "user@example.com",
+          iss: "bb-auth-gate",
+          givenName: "Emiliano",
+          familyName: "De Simoni",
+        };
+        next();
+      });
+
+      const response = await request(app).get("/api/token/validate");
+
+      expect(response.body.user).toHaveProperty("name", "Emiliano De Simoni");
+      expect(response.body.user).toHaveProperty("givenName", "Emiliano");
+      expect(response.body.user).toHaveProperty("familyName", "De Simoni");
+    });
+
+    it("should use whichever name the gate had when only one is present", async () => {
+      vi.mocked(authenticateToken).mockImplementationOnce((req, _res, next) => {
+        req.user = {
+          sub: "user@example.com",
+          email: "user@example.com",
+          iss: "bb-auth-gate",
+          givenName: "Emiliano",
+        };
+        next();
+      });
+
+      const response = await request(app).get("/api/token/validate");
+
+      expect(response.body.user).toHaveProperty("name", "Emiliano");
+    });
+
+    it("should omit the display name entirely when the gate had no names", async () => {
+      // Sending "" would have the client render a blank heading instead of falling
+      // back to the email, so the field must be absent rather than empty.
+      const response = await request(app).get("/api/token/validate");
+
+      expect(response.body.user).not.toHaveProperty("name");
     });
   });
 });

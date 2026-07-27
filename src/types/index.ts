@@ -1,22 +1,22 @@
 /**
- * JWT token payload structure for authentication
- * @interface JwtPayload
+ * Identity established by the bb-auth reverse-proxy gate.
+ *
+ * There is no token: nginx runs an `auth_request` against the gate and injects the
+ * headers the gate returned. Only the email is guaranteed - the names come from
+ * optional id-token claims, so either may be missing.
+ * @interface AuthenticatedUser
  */
-export interface JwtPayload {
-  /** Unique subject identifier (user ID) */
+export interface AuthenticatedUser {
+  /** Unique subject identifier: the gate keys on email */
   sub: string;
-  /** User's email address */
+  /** Authorized email address forwarded by the gate */
   email: string;
-  /** User's display name (optional) */
-  name?: string;
-  /** Token issued at timestamp (Unix epoch seconds) */
-  iat: number;
-  /** Token expiration timestamp (Unix epoch seconds) */
-  exp: number;
-  /** Token issuer (Auth0 domain or BFF service) */
+  /** Fixed marker identifying the gate as the authenticating party */
   iss: string;
-  /** Token audience (intended recipient) */
-  aud: string;
+  /** Given name, absent when the id token carries no `given_name` claim */
+  givenName?: string;
+  /** Family name, absent when the id token carries no `family_name` claim */
+  familyName?: string;
 }
 
 /**
@@ -35,7 +35,7 @@ export interface DeepgramTokenRequest {
  * @interface DeepgramTokenResponse
  */
 export interface DeepgramTokenResponse {
-  /** The Deepgram access token (JWT format) */
+  /** The Deepgram access token */
   token: string;
   /** Token lifetime in seconds */
   expiresIn: number;
@@ -79,22 +79,12 @@ export interface EnvironmentConfig {
   nodeEnv: string;
   /** Logging level for the application */
   logLevel: LogLevel;
-  /** Secret key for signing JWT tokens */
-  jwtSecret: string;
-  /** JWT issuer identifier (Auth0 domain URL) */
-  jwtIssuer: string;
-  /** JWT audience identifier (intended recipient) */
-  jwtAudience: string;
-  /** Algorithm used to sign outgoing JWT tokens */
-  jwtAlgorithm: string;
-  /** Allowed algorithms for verifying incoming JWT tokens */
-  jwtVerifyAlgorithms: string[];
-  /** Maximum number of JWKS keys to cache */
-  jwksCacheMaxEntries: number;
-  /** Maximum age of cached JWKS keys in milliseconds */
-  jwksCacheMaxAgeMs: number;
-  /** Timeout for JWKS requests in milliseconds */
-  jwksRequestTimeoutMs: number;
+  /** Request header carrying the authenticated email, set by the gate */
+  gateIdentityHeader: string;
+  /** Request header carrying the percent-encoded given name, set by the gate */
+  gateGivenNameHeader: string;
+  /** Request header carrying the percent-encoded family name, set by the gate */
+  gateFamilyNameHeader: string;
   /** Deepgram API key for authentication */
   deepgramApiKey: string;
   /** Optional explicit Deepgram project ID (defaults to first project if not set) */

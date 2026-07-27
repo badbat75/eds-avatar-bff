@@ -1,17 +1,13 @@
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
-import { authenticateToken, generateToken } from './auth';
-import jwt from 'jsonwebtoken';
+import { authenticateToken } from './auth';
 
-import { createMockToken, createExpiredToken } from '../test/helpers';
-
-// Mock jwks-rsa
-vi.mock('jwks-rsa', () => ({
-  default: vi.fn(() => ({
-    getSigningKey: vi.fn(),
-  })),
-}));
-
+/**
+ * The bb-auth gate is the only authentication: nginx runs an `auth_request`, then
+ * overwrites the identity header on every request it forwards. These tests cover what
+ * the middleware may conclude from that header — and, just as importantly, that a
+ * bearer token means nothing to it.
+ */
 describe('authenticateToken middleware', () => {
   let mockRequest: Partial<Request>;
   let mockResponse: Partial<Response>;
@@ -23,33 +19,50 @@ describe('authenticateToken middleware', () => {
     mockJson = vi.fn();
     mockStatus = vi.fn().mockReturnValue({ json: mockJson });
 
-    mockRequest = {
-      headers: {},
-    };
-
-    mockResponse = {
-      status: mockStatus,
-      json: mockJson,
-    };
-
+    mockRequest = { headers: {} };
+    mockResponse = { status: mockStatus, json: mockJson };
     mockNext = vi.fn();
 
     vi.clearAllMocks();
   });
 
-  it('should return 401 if no authorization header is provided', () => {
+  it('should accept the identity header the gate set', () => {
+    mockRequest.headers = { 'x-auth-email': 'user@example.com' };
+
+    authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
+
+    expect(mockNext).toHaveBeenCalled();
+    expect(mockStatus).not.toHaveBeenCalled();
+    expect(mockRequest.user).toEqual({
+      sub: 'user@example.com',
+      email: 'user@example.com',
+      iss: 'bb-auth-gate',
+    });
+  });
+
+  it('should trim surrounding whitespace from the identity', () => {
+    mockRequest.headers = { 'x-auth-email': '  user@example.com  ' };
+
+    authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
+
+    expect(mockRequest.user?.email).toBe('user@example.com');
+  });
+
+  it('should return 401 when the gate forwarded no identity', () => {
+    mockRequest.headers = {};
+
     authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
 
     expect(mockStatus).toHaveBeenCalledWith(401);
     expect(mockJson).toHaveBeenCalledWith({
       error: 'Unauthorized',
-      message: 'Access token is required',
+      message: 'Missing x-auth-email identity header',
     });
     expect(mockNext).not.toHaveBeenCalled();
   });
 
-  it('should return 401 if authorization header is malformed', () => {
-    mockRequest.headers = { authorization: 'InvalidFormat' };
+  it('should return 401 when the identity header is blank', () => {
+    mockRequest.headers = { 'x-auth-email': '   ' };
 
     authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
 
@@ -57,171 +70,95 @@ describe('authenticateToken middleware', () => {
     expect(mockNext).not.toHaveBeenCalled();
   });
 
-  it('should call next() with valid token', () => {
-    const token = createMockToken();
-    mockRequest.headers = { authorization: `Bearer ${token}` };
+  it('should take the first value when the header arrives repeated', () => {
+    mockRequest.headers = { 'x-auth-email': ['first@example.com', 'second@example.com'] };
 
-    // Mock jwt.verify to call callback with decoded payload
-    vi.spyOn(jwt, 'verify').mockImplementation((_token, _secretOrPublicKey, _options, callback) => {
-      const decoded = {
-        sub: 'test-user-123',
-        aud: process.env.JWT_AUDIENCE,
-        iss: process.env.JWT_ISSUER,
-      };
-      (callback as any)(null, decoded);
-      return undefined as any;
-    });
+    authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
+
+    expect(mockRequest.user?.email).toBe('first@example.com');
+  });
+
+  it('should ignore a bearer token: the proxy is the authentication', () => {
+    mockRequest.headers = {
+      authorization: 'Bearer some.jwt.token',
+      'x-auth-email': 'user@example.com',
+    };
 
     authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
 
     expect(mockNext).toHaveBeenCalled();
-    expect((mockRequest as any).user).toBeDefined();
-    expect((mockRequest as any).user.sub).toBe('test-user-123');
+    expect(mockRequest.user?.email).toBe('user@example.com');
   });
 
-  it('should return 403 if token verification fails', () => {
-    const token = 'invalid-token';
-    mockRequest.headers = { authorization: `Bearer ${token}` };
-
-    // Mock jwt.verify to call callback with error
-    vi.spyOn(jwt, 'verify').mockImplementation((_token, _secretOrPublicKey, _options, callback) => {
-      (callback as any)(new Error('Invalid token'));
-      return undefined as any;
-    });
+  it('should reject a bearer token when the gate forwarded no identity', () => {
+    mockRequest.headers = { authorization: 'Bearer some.jwt.token' };
 
     authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
 
-    expect(mockStatus).toHaveBeenCalledWith(403);
-    expect(mockJson).toHaveBeenCalledWith({
-      error: 'Forbidden',
-      message: expect.stringContaining('Token validation failed'),
-    });
+    expect(mockStatus).toHaveBeenCalledWith(401);
     expect(mockNext).not.toHaveBeenCalled();
   });
 
-  it('should return 403 if token payload is missing sub', () => {
-    const token = createMockToken();
-    mockRequest.headers = { authorization: `Bearer ${token}` };
-
-    // Mock jwt.verify to return payload without sub
-    vi.spyOn(jwt, 'verify').mockImplementation((_token, _secretOrPublicKey, _options, callback) => {
-      const decoded = {
-        aud: process.env.JWT_AUDIENCE,
-        iss: process.env.JWT_ISSUER,
+  describe('names forwarded by the gate', () => {
+    it('should percent-decode the names', () => {
+      mockRequest.headers = {
+        'x-auth-email': 'user@example.com',
+        'x-auth-given-name': 'Emiliano',
+        'x-auth-family-name': 'De%20Simoni',
       };
-      (callback as any)(null, decoded);
-      return undefined as any;
+
+      authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(mockRequest.user?.givenName).toBe('Emiliano');
+      expect(mockRequest.user?.familyName).toBe('De Simoni');
     });
 
-    authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
-
-    expect(mockStatus).toHaveBeenCalledWith(403);
-    expect(mockJson).toHaveBeenCalledWith({
-      error: 'Forbidden',
-      message: 'Token validation failed: Invalid token payload - missing subject',
-    });
-    expect(mockNext).not.toHaveBeenCalled();
-  });
-
-  it('should handle expired token', () => {
-    const token = createExpiredToken();
-    mockRequest.headers = { authorization: `Bearer ${token}` };
-
-    // Mock jwt.verify to call callback with expiration error
-    vi.spyOn(jwt, 'verify').mockImplementation((_token, _secretOrPublicKey, _options, callback) => {
-      const error = new Error('jwt expired');
-      error.name = 'TokenExpiredError';
-      (callback as any)(error);
-      return undefined as any;
-    });
-
-    authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
-
-    expect(mockStatus).toHaveBeenCalledWith(403);
-    expect(mockJson).toHaveBeenCalledWith({
-      error: 'Forbidden',
-      message: expect.stringContaining('jwt expired'),
-    });
-  });
-
-  it('should attach user to request object on success', () => {
-    const token = createMockToken({ email: 'test@example.com', name: 'Test User' });
-    mockRequest.headers = { authorization: `Bearer ${token}` };
-
-    vi.spyOn(jwt, 'verify').mockImplementation((_token, _secretOrPublicKey, _options, callback) => {
-      const decoded = {
-        sub: 'test-user-123',
-        aud: process.env.JWT_AUDIENCE,
-        iss: process.env.JWT_ISSUER,
-        email: 'test@example.com',
-        name: 'Test User',
+    it('should decode non-ASCII names', () => {
+      mockRequest.headers = {
+        'x-auth-email': 'user@example.com',
+        'x-auth-given-name': 'Nicol%C3%B2',
       };
-      (callback as any)(null, decoded);
-      return undefined as any;
+
+      authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(mockRequest.user?.givenName).toBe('Nicolò');
     });
 
-    authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
+    it('should leave the names undefined when the gate sent none', () => {
+      mockRequest.headers = { 'x-auth-email': 'user@example.com' };
 
-    expect((mockRequest as any).user).toEqual({
-      sub: 'test-user-123',
-      aud: process.env.JWT_AUDIENCE,
-      iss: process.env.JWT_ISSUER,
-      email: 'test@example.com',
-      name: 'Test User',
+      authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+      expect(mockRequest.user?.givenName).toBeUndefined();
+      expect(mockRequest.user?.familyName).toBeUndefined();
     });
-    expect(mockNext).toHaveBeenCalled();
-  });
-});
 
-describe('generateToken function', () => {
-  beforeEach(() => {
-    // Mock jwt.sign to avoid RS256 key requirements in tests
-    vi.spyOn(jwt, 'sign').mockImplementation((payload: any) => {
-      // Return a mock token that looks like a JWT
-      return 'mock.' + Buffer.from(JSON.stringify(payload)).toString('base64') + '.signature';
+    it('should keep the request authenticated when a name cannot be decoded', () => {
+      // A lone '%' throws in decodeURIComponent. The email is the credential, so a
+      // broken cosmetic field must not turn an authorized caller into a 401.
+      mockRequest.headers = {
+        'x-auth-email': 'user@example.com',
+        'x-auth-given-name': '100%',
+      };
+
+      authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+      expect(mockStatus).not.toHaveBeenCalled();
+      expect(mockRequest.user?.givenName).toBe('100%');
     });
-  });
 
-  it('should call jwt.sign and return token', () => {
-    const payload = {
-      sub: 'test-user-123',
-      email: 'test@example.com',
-      name: 'Test User',
-    };
+    it('should not let names stand in for a missing identity', () => {
+      mockRequest.headers = {
+        'x-auth-given-name': 'Emiliano',
+        'x-auth-family-name': 'De%20Simoni',
+      };
 
-    const token = generateToken(payload);
+      authenticateToken(mockRequest as Request, mockResponse as Response, mockNext);
 
-    expect(token).toBeTruthy();
-    expect(typeof token).toBe('string');
-    expect(jwt.sign).toHaveBeenCalled();
-  });
-
-  it('should generate token with 15 minute expiration', () => {
-    const payload = {
-      sub: 'test-user-123',
-      email: 'test@example.com',
-    };
-
-    generateToken(payload);
-
-    const callArgs = (jwt.sign as any).mock.calls[0][0];
-    expect(callArgs.exp - callArgs.iat).toBe(15 * 60); // 15 minutes in seconds
-  });
-
-  it('should include required JWT fields', () => {
-    const payload = {
-      sub: 'test-user-123',
-      email: 'test@example.com',
-    };
-
-    generateToken(payload);
-
-    const callArgs = (jwt.sign as any).mock.calls[0][0];
-    expect(callArgs).toHaveProperty('sub');
-    expect(callArgs).toHaveProperty('email');
-    expect(callArgs).toHaveProperty('iat');
-    expect(callArgs).toHaveProperty('exp');
-    expect(callArgs).toHaveProperty('iss');
-    expect(callArgs).toHaveProperty('aud');
+      expect(mockStatus).toHaveBeenCalledWith(401);
+      expect(mockNext).not.toHaveBeenCalled();
+    });
   });
 });

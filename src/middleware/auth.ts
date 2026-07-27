@@ -1,99 +1,70 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import jwksClient from 'jwks-rsa';
-import { config, constructJwksUri } from '../config/environment';
-import { JwtPayload } from '../types';
+import { config } from '../config/environment';
+import { AuthenticatedUser } from '../types';
 
 // Extend Express Request type to include user
 declare module 'express-serve-static-core' {
   interface Request {
-    user?: JwtPayload;
+    user?: AuthenticatedUser;
   }
 }
 
-// Initialize JWKS client for Auth0 public key retrieval
-const client = jwksClient({
-  jwksUri: constructJwksUri(config.jwtIssuer),
-  requestHeaders: {},
-  timeout: config.jwksRequestTimeoutMs,
-  cache: true,
-  cacheMaxEntries: config.jwksCacheMaxEntries,
-  cacheMaxAge: config.jwksCacheMaxAgeMs,
-  rateLimit: true,
-  jwksRequestsPerMinute: 5,
-});
-
-// Function to get the signing key
-function getKey(header: jwt.JwtHeader, callback: jwt.SigningKeyCallback): void {
-  if (!header.kid) {
-    return callback(new Error('Missing kid in token header'));
-  }
-
-  client.getSigningKey(header.kid, (err, key) => {
-    if (err) {
-      return callback(err);
-    }
-    const signingKey = key?.getPublicKey();
-    callback(null, signingKey);
-  });
+/**
+ * Reads a header the gate sets at most once.
+ * Node lowercases incoming header names; an array would mean a duplicate.
+ */
+function readHeader(req: Request, name: string): string | undefined {
+  const raw = req.headers[name];
+  return (Array.isArray(raw) ? raw[0] : raw)?.trim() || undefined;
 }
 
+/**
+ * Decodes a name the gate percent-encoded.
+ *
+ * Header field values are not UTF-8, so the gate escapes them ("De%20Simoni"). A
+ * malformed sequence must not cost the caller its identity — the request is already
+ * authenticated by the time we get here, and a name is only ever cosmetic — so an
+ * undecodable value is passed through exactly as it arrived.
+ */
+function decodeGateName(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value).trim() || undefined;
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Authenticates a request already vetted by the bb-auth reverse-proxy gate.
+ *
+ * The gate answers nginx's `auth_request` and returns the authorized email plus,
+ * when the id token carries them, the user's names. nginx injects them with
+ * `proxy_set_header` — overwriting whatever the client sent, and omitting a header
+ * entirely when the gate returned no value. There is no token to verify here: the
+ * proxy is the authentication, which is why the service refuses to bind anywhere but
+ * loopback (see validateConfig).
+ */
 export function authenticateToken(req: Request, res: Response, next: NextFunction): void {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  // The email is the credential; it arrives unencoded and its absence is fatal
+  const email = readHeader(req, config.gateIdentityHeader);
 
-  if (!token) {
+  if (!email) {
     res.status(401).json({
       error: 'Unauthorized',
-      message: 'Access token is required',
+      message: `Missing ${config.gateIdentityHeader} identity header`,
     });
     return;
   }
 
-  // Verify token with configurable algorithms
-  jwt.verify(token, getKey, {
-    audience: config.jwtAudience,
-    issuer: config.jwtIssuer,
-    algorithms: config.jwtVerifyAlgorithms as jwt.Algorithm[],
-  }, (err, decoded) => {
-    if (err) {
-      res.status(403).json({
-        error: 'Forbidden',
-        message: `Token validation failed: ${err.message}`,
-      });
-      return;
-    }
-
-    const payload = decoded as JwtPayload;
-
-    // Validate token structure
-    if (!payload.sub) {
-      res.status(403).json({
-        error: 'Forbidden',
-        message: 'Token validation failed: Invalid token payload - missing subject',
-      });
-      return;
-    }
-
-    req.user = payload;
-    next();
-  });
-
-  // Function returns here after initiating async verification
-  return;
-}
-
-export function generateToken(payload: Omit<JwtPayload, 'iat' | 'exp' | 'iss' | 'aud'>): string {
-  const now = Math.floor(Date.now() / 1000);
-  const tokenPayload: JwtPayload = {
-    ...payload,
-    iat: now,
-    exp: now + (15 * 60), // 15 minutes
-    iss: config.jwtIssuer,
-    aud: config.jwtAudience,
+  // The gate issues no subject claim, so the email is also what the rest of the
+  // service keys on. The names are optional decoration and never gate access.
+  req.user = {
+    sub: email,
+    email,
+    iss: 'bb-auth-gate',
+    givenName: decodeGateName(readHeader(req, config.gateGivenNameHeader)),
+    familyName: decodeGateName(readHeader(req, config.gateFamilyNameHeader)),
   };
-
-  return jwt.sign(tokenPayload, config.jwtSecret, {
-    algorithm: config.jwtAlgorithm as jwt.Algorithm,
-  });
+  next();
 }

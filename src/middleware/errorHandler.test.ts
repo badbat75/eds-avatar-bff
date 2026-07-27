@@ -90,36 +90,6 @@ describe('errorHandler middleware', () => {
       });
     });
 
-    it('should handle JsonWebTokenError with 401 status', () => {
-      const error = new Error('jwt malformed');
-      error.name = 'JsonWebTokenError';
-
-      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
-
-      expect(mockStatus).toHaveBeenCalledWith(401);
-      expect(mockJson).toHaveBeenCalledWith({
-        error: 'Unauthorized',
-        message: 'Invalid token',
-        statusCode: 401,
-        code: 'AUTH_INVALID_TOKEN',
-      });
-    });
-
-    it('should handle TokenExpiredError with 401 status', () => {
-      const error = new Error('jwt expired');
-      error.name = 'TokenExpiredError';
-
-      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
-
-      expect(mockStatus).toHaveBeenCalledWith(401);
-      expect(mockJson).toHaveBeenCalledWith({
-        error: 'Unauthorized',
-        message: 'Token expired',
-        statusCode: 401,
-        code: 'AUTH_TOKEN_EXPIRED',
-      });
-    });
-
     it('should handle 400 Bad Request errors', () => {
       const error = new AppError('Invalid input', 400, 'INVALID_INPUT');
 

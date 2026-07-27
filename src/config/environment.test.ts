@@ -1,85 +1,41 @@
 import { describe, it, expect } from 'vitest';
-import { constructJwksUri } from './environment';
+import { config, validateConfig } from './environment';
 
-describe('constructJwksUri', () => {
-  it('should construct JWKS URI from issuer with trailing slash', () => {
-    const issuer = 'https://example.auth0.com/';
-    const expected = 'https://example.auth0.com/.well-known/jwks.json';
-
-    expect(constructJwksUri(issuer)).toBe(expected);
+describe('validateConfig', () => {
+  /** The live config already passes validation; vary only what each case is about */
+  const gateConfig = (overrides: Partial<typeof config> = {}) => ({
+    ...config,
+    host: '127.0.0.1',
+    ...overrides,
   });
 
-  it('should construct JWKS URI from issuer without trailing slash', () => {
-    const issuer = 'https://example.auth0.com';
-    const expected = 'https://example.auth0.com/.well-known/jwks.json';
-
-    expect(constructJwksUri(issuer)).toBe(expected);
+  it.each(['127.0.0.1', '::1', 'localhost'])('accepts the loopback bind host %s', host => {
+    expect(() => validateConfig(gateConfig({ host }))).not.toThrow();
   });
 
-  it('should handle issuer with path', () => {
-    const issuer = 'https://example.com/auth0';
-    const expected = 'https://example.com/auth0/.well-known/jwks.json';
-
-    expect(constructJwksUri(issuer)).toBe(expected);
+  // The identity header is trusted, so anything that can reach the port can
+  // impersonate any user: the reverse proxy must be the only way in.
+  it('rejects a bind host reachable from outside this machine', () => {
+    expect(() => validateConfig(gateConfig({ host: '0.0.0.0' }))).toThrow(
+      /HOST must be loopback/
+    );
   });
 
-  it('should handle issuer with path and trailing slash', () => {
-    const issuer = 'https://example.com/auth0/';
-    const expected = 'https://example.com/auth0/.well-known/jwks.json';
-
-    expect(constructJwksUri(issuer)).toBe(expected);
+  it('rejects an empty identity header, which would authenticate nobody', () => {
+    expect(() => validateConfig(gateConfig({ gateIdentityHeader: '  ' }))).toThrow(
+      /GATE_IDENTITY_HEADER must not be empty/
+    );
   });
 
-  it('should handle HTTP protocol', () => {
-    const issuer = 'http://localhost:3000/';
-    const expected = 'http://localhost:3000/.well-known/jwks.json';
-
-    expect(constructJwksUri(issuer)).toBe(expected);
+  it('rejects a port outside the valid range', () => {
+    expect(() => validateConfig(gateConfig({ port: 70000 }))).toThrow(
+      /PORT must be between 1 and 65535/
+    );
   });
 
-  it('should preserve port numbers', () => {
-    const issuer = 'https://example.com:8443/';
-    const expected = 'https://example.com:8443/.well-known/jwks.json';
-
-    expect(constructJwksUri(issuer)).toBe(expected);
-  });
-
-  it('should throw error for invalid URL format', () => {
-    const issuer = 'not-a-valid-url';
-
-    expect(() => constructJwksUri(issuer)).toThrow('Invalid issuer URL format');
-  });
-
-  it('should throw error for invalid protocol', () => {
-    const issuer = 'ftp://example.com/';
-
-    expect(() => constructJwksUri(issuer)).toThrow('Invalid issuer protocol: ftp:');
-  });
-
-  it('should throw error for empty string', () => {
-    const issuer = '';
-
-    expect(() => constructJwksUri(issuer)).toThrow('Invalid issuer URL format');
-  });
-
-  it('should handle complex paths correctly', () => {
-    const issuer = 'https://auth.example.com/tenant/subdomain';
-    const expected = 'https://auth.example.com/tenant/subdomain/.well-known/jwks.json';
-
-    expect(constructJwksUri(issuer)).toBe(expected);
-  });
-
-  it('should handle query parameters in issuer', () => {
-    const issuer = 'https://example.com/?tenant=test';
-    const expected = 'https://example.com/.well-known/jwks.json?tenant=test';
-
-    expect(constructJwksUri(issuer)).toBe(expected);
-  });
-
-  it('should handle URL with fragment', () => {
-    const issuer = 'https://example.com/#fragment';
-    const expected = 'https://example.com/.well-known/jwks.json#fragment';
-
-    expect(constructJwksUri(issuer)).toBe(expected);
+  it('rejects a Deepgram token TTL outside the supported window', () => {
+    expect(() => validateConfig(gateConfig({ deepgramTokenTtlMinutes: 0 }))).toThrow(
+      /DEEPGRAM_TOKEN_TTL_MINUTES must be between 1 and 1440/
+    );
   });
 });

@@ -86,7 +86,7 @@ router.get('/', (req: Request, res: Response) => {
       const memory = process.memoryUsage();
 
       // Check configuration
-      const hasRequiredConfig = !!(config.deepgramApiKey && config.jwtSecret);
+      const hasRequiredConfig = !!config.deepgramApiKey;
 
       // Check Deepgram API connectivity (with caching to prevent overload)
       let deepgramConnected = false;

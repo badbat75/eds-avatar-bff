@@ -41,14 +41,6 @@ export function errorHandler(
     message = error.message;
     code = error.code;
     context = error.context;
-  } else if (error.name === 'JsonWebTokenError') {
-    statusCode = 401;
-    message = 'Invalid token';
-    code = 'AUTH_INVALID_TOKEN';
-  } else if (error.name === 'TokenExpiredError') {
-    statusCode = 401;
-    message = 'Token expired';
-    code = 'AUTH_TOKEN_EXPIRED';
   }
 
   // Log error for debugging

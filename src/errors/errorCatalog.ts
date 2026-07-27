@@ -16,27 +16,6 @@ export function createAuthenticationError(
   return new AppError(message, 401, 'AUTH_REQUIRED', true, context);
 }
 
-export function createInvalidTokenError(
-  message: string = 'Invalid authentication token',
-  context?: Record<string, unknown>,
-): AppError {
-  return new AppError(message, 401, 'AUTH_INVALID_TOKEN', true, context);
-}
-
-export function createTokenExpiredError(
-  message: string = 'Authentication token has expired',
-  context?: Record<string, unknown>,
-): AppError {
-  return new AppError(message, 401, 'AUTH_TOKEN_EXPIRED', true, context);
-}
-
-export function createMissingTokenError(
-  message: string = 'No authentication token provided',
-  context?: Record<string, unknown>,
-): AppError {
-  return new AppError(message, 401, 'AUTH_TOKEN_MISSING', true, context);
-}
-
 export function createInsufficientPermissionsError(
   message: string = 'Insufficient permissions to access this resource',
   context?: Record<string, unknown>,
@@ -197,9 +176,6 @@ export function createInternalError(
 export const ERROR_CODES = {
   // Authentication (401, 403)
   AUTH_REQUIRED: 'AUTH_REQUIRED',
-  AUTH_INVALID_TOKEN: 'AUTH_INVALID_TOKEN',
-  AUTH_TOKEN_EXPIRED: 'AUTH_TOKEN_EXPIRED',
-  AUTH_TOKEN_MISSING: 'AUTH_TOKEN_MISSING',
   AUTH_INSUFFICIENT_PERMISSIONS: 'AUTH_INSUFFICIENT_PERMISSIONS',
 
   // Validation (400)

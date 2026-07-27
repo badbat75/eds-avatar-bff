@@ -71,18 +71,15 @@ return defaultValue;
 }
 
 /**
- * Parses a comma-separated array environment variable
- * @param name - Environment variable name
- * @param defaultValue - Default array if not set
- * @returns Array of trimmed, non-empty strings
+ * True for addresses that only accept connections originating on this host.
+ * The gate's identity header is trusted, so anything able to reach the port can
+ * impersonate any user — binding must not leave the host.
+ * @param host - The configured bind address
+ * @returns Whether the address is loopback-only
  */
-function parseArrayEnvVar(name: string, defaultValue: string[]): string[] {
-  const value = process.env[name];
-  if (!value) {
-return defaultValue;
-}
-
-  return value.split(',').map(item => item.trim()).filter(Boolean);
+function isLoopbackBindHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  return normalized === '127.0.0.1' || normalized === '::1' || normalized === 'localhost';
 }
 
 const nodeEnv = getOptionalEnvVar('NODE_ENV', 'development');
@@ -92,18 +89,18 @@ const nodeEnv = getOptionalEnvVar('NODE_ENV', 'development');
  * @constant config
  */
 export const config: EnvironmentConfig = {
-  host: getOptionalEnvVar('HOST', '0.0.0.0'),
+  // Loopback by default: the gate identity header is only trustworthy while the
+  // reverse proxy is the sole reachable path to this service (see validateConfig)
+  host: getOptionalEnvVar('HOST', '127.0.0.1'),
   port: parseIntEnvVar('PORT', 3001),
   nodeEnv,
   logLevel: getLogLevel(nodeEnv),
-  jwtSecret: getRequiredEnvVar('JWT_SECRET'),
-  jwtIssuer: getOptionalEnvVar('JWT_ISSUER', 'eds-avatar-bff'),
-  jwtAudience: getOptionalEnvVar('JWT_AUDIENCE', 'eds-avatar-frontend'),
-  jwtAlgorithm: getOptionalEnvVar('JWT_ALGORITHM', 'RS256'),
-  jwtVerifyAlgorithms: parseArrayEnvVar('JWT_VERIFY_ALGORITHMS', ['RS256', 'HS256']),
-  jwksCacheMaxEntries: parseIntEnvVar('JWKS_CACHE_MAX_ENTRIES', 5),
-  jwksCacheMaxAgeMs: parseIntEnvVar('JWKS_CACHE_MAX_AGE_MS', 600000), // 10 minutes
-  jwksRequestTimeoutMs: parseIntEnvVar('JWKS_REQUEST_TIMEOUT_MS', 30000), // 30 seconds
+  gateIdentityHeader: getOptionalEnvVar('GATE_IDENTITY_HEADER', 'x-auth-email').toLowerCase(),
+  gateGivenNameHeader: getOptionalEnvVar('GATE_GIVEN_NAME_HEADER', 'x-auth-given-name').toLowerCase(),
+  gateFamilyNameHeader: getOptionalEnvVar(
+    'GATE_FAMILY_NAME_HEADER',
+    'x-auth-family-name'
+  ).toLowerCase(),
   deepgramApiKey: getRequiredEnvVar('DEEPGRAM_API_KEY'),
   deepgramProjectId: process.env.DEEPGRAM_PROJECT_ID,
   deepgramTokenTtlMinutes: parseIntEnvVar('DEEPGRAM_TOKEN_TTL_MINUTES', 15),
@@ -117,12 +114,22 @@ export const config: EnvironmentConfig = {
  * @throws {Error} If any configuration value is invalid
  */
 export function validateConfig(config: EnvironmentConfig): void {
-  if (config.jwtSecret.length < 32) {
-    throw new Error('JWT_SECRET must be at least 32 characters long');
-  }
-
   if (config.port < 1 || config.port > 65535) {
     throw new Error('PORT must be between 1 and 65535');
+  }
+
+  // The reverse proxy is the only authentication: it overwrites the identity header
+  // on every request it forwards, so a caller that could reach this port directly
+  // would be free to set the header itself. Refuse to start reachable from off-host.
+  if (!isLoopbackBindHost(config.host)) {
+    throw new Error(
+      `HOST must be loopback (127.0.0.1 or ::1), got: ${config.host}. ` +
+        "The gate's identity header is only trustworthy when the reverse proxy is the sole reachable path."
+    );
+  }
+
+  if (!config.gateIdentityHeader.trim()) {
+    throw new Error('GATE_IDENTITY_HEADER must not be empty');
   }
 
   // Allow any NODE_ENV, just log if it's unusual
@@ -130,63 +137,6 @@ export function validateConfig(config: EnvironmentConfig): void {
 
   if (config.deepgramTokenTtlMinutes < 1 || config.deepgramTokenTtlMinutes > 1440) {
     throw new Error('DEEPGRAM_TOKEN_TTL_MINUTES must be between 1 and 1440 minutes (24 hours)');
-  }
-
-  // Validate JWT cipher configuration
-  const validAlgorithms = ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512'];
-
-  if (!validAlgorithms.includes(config.jwtAlgorithm)) {
-    throw new Error(`JWT_ALGORITHM must be one of: ${validAlgorithms.join(', ')}`);
-  }
-
-  const invalidAlgorithms = config.jwtVerifyAlgorithms.filter(alg => !validAlgorithms.includes(alg));
-  if (invalidAlgorithms.length > 0) {
-    throw new Error(`JWT_VERIFY_ALGORITHMS contains invalid algorithms: ${invalidAlgorithms.join(', ')}`);
-  }
-
-  if (config.jwksCacheMaxEntries < 1 || config.jwksCacheMaxEntries > 100) {
-    throw new Error('JWKS_CACHE_MAX_ENTRIES must be between 1 and 100');
-  }
-
-  if (config.jwksCacheMaxAgeMs < 60000 || config.jwksCacheMaxAgeMs > 3600000) {
-    throw new Error('JWKS_CACHE_MAX_AGE_MS must be between 60000ms (1 minute) and 3600000ms (1 hour)');
-  }
-
-  if (config.jwksRequestTimeoutMs < 5000 || config.jwksRequestTimeoutMs > 60000) {
-    throw new Error('JWKS_REQUEST_TIMEOUT_MS must be between 5000ms (5 seconds) and 60000ms (1 minute)');
-  }
-}
-
-/**
- * Constructs a JWKS URI from an issuer URL
- * @param issuer - The JWT issuer URL (e.g., 'https://example.auth0.com/')
- * @returns The JWKS URI (e.g., 'https://example.auth0.com/.well-known/jwks.json')
- * @throws Error if the issuer URL is malformed
- */
-export function constructJwksUri(issuer: string): string {
-  try {
-    // Parse the issuer URL
-    const url = new URL(issuer);
-
-    // Validate protocol
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-      throw new Error(`Invalid issuer protocol: ${url.protocol}. Must be http: or https:`);
-    }
-
-    // Ensure path ends with trailing slash for proper URL joining
-    if (!url.pathname.endsWith('/')) {
-      url.pathname += '/';
-    }
-
-    // Construct JWKS URI by appending the well-known path
-    url.pathname += '.well-known/jwks.json';
-
-    return url.toString();
-  } catch (error) {
-    if (error instanceof TypeError) {
-      throw new Error(`Invalid issuer URL format: ${issuer}`);
-    }
-    throw error;
   }
 }
 

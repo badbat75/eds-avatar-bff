@@ -11,7 +11,7 @@ const swaggerDefinition = {
   info: {
     title: 'EDS Avatar BFF API',
     version: '1.0.0',
-    description: 'Backend for Frontend service providing JWT-authenticated Deepgram token generation and prompt management for the EDS Avatar application',
+    description: 'Backend for Frontend service providing Deepgram token generation and prompt management for the EDS Avatar application, authenticated by the bb-auth reverse-proxy gate',
     contact: {
       name: 'API Support',
     },
@@ -24,11 +24,13 @@ const swaggerDefinition = {
   ],
   components: {
     securitySchemes: {
-      BearerAuth: {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description: 'Auth0 JWT token for authentication',
+      GateIdentity: {
+        type: 'apiKey',
+        in: 'header',
+        name: config.gateIdentityHeader,
+        description:
+          'Authorized email injected by nginx after the bb-auth gate approved the ' +
+          'request. Callers never set it: nginx overwrites it on every proxied request.',
       },
     },
     schemas: {
@@ -39,7 +41,7 @@ const swaggerDefinition = {
           userId: {
             type: 'string',
             description: 'Unique identifier for the user requesting the token',
-            example: 'auth0|123456789',
+            example: 'user@example.com',
           },
           sessionId: {
             type: 'string',
@@ -149,7 +151,7 @@ const swaggerDefinition = {
   },
   security: [
     {
-      BearerAuth: [],
+      GateIdentity: [],
     },
   ],
 };
