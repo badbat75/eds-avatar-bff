@@ -59,7 +59,26 @@ describe("DeepgramTokenService", () => {
       expect(result).toHaveProperty("token", "test-deepgram-token");
       expect(result).toHaveProperty("expiresIn", 900); // 15 minutes in seconds
       expect(result).toHaveProperty("expiresAt");
-      expect(mockDeepgramClient.auth.grantToken).toHaveBeenCalled();
+      // Without an explicit ttl_seconds Deepgram mints a 30-second token
+      expect(mockDeepgramClient.auth.grantToken).toHaveBeenCalledWith({
+        ttl_seconds: 900,
+      });
+    });
+
+    it("should report the lifetime Deepgram actually granted, not the configured one", async () => {
+      // Deepgram is free to hand back something other than what was asked for. A caller
+      // told 900 for a 30-second token caches it far past its death and reconnects with
+      // an expired token until the fictional expiry passes.
+      mockDeepgramClient.auth.grantToken.mockResolvedValue({
+        result: { access_token: "short-lived-token", expires_in: 30 },
+        error: null,
+      });
+
+      const before = Date.now();
+      const result = await service.generateProjectToken("test-user-123");
+
+      expect(result.expiresIn).toBe(30);
+      expect(new Date(result.expiresAt).getTime()).toBeLessThanOrEqual(before + 31_000);
     });
 
     it("should throw AppError if grantToken returns error", async () => {

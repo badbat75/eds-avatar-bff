@@ -43,12 +43,15 @@ export class DeepgramTokenService {
     expiresAt: string;
   }> {
     try {
-      const expiresIn = config.deepgramTokenTtlMinutes * 60; // Convert minutes to seconds
-      const expiresAt = new Date(Date.now() + expiresIn * 1000);
+      const requestedTtlSeconds = config.deepgramTokenTtlMinutes * 60;
 
-      // Use grantToken() like the demo - creates temporary token with full API key permissions
-      // This is the correct method for Voice Agent API access
-      const { result: tokenResponse, error: tokenError } = await this.deepgram.auth.grantToken();
+      // ttl_seconds has to be passed explicitly: left out, Deepgram mints its default
+      // 30-second token while we would go on advertising the configured lifetime.
+      // Creates a temporary token inheriting the API key's permissions, which is what
+      // the Voice Agent API requires.
+      const { result: tokenResponse, error: tokenError } = await this.deepgram.auth.grantToken({
+        ttl_seconds: requestedTtlSeconds,
+      });
 
       if (tokenError || !tokenResponse) {
         logError(LOG_CONTEXTS.DEEPGRAM, 'Failed to grant token', tokenError as Error);
@@ -64,6 +67,12 @@ export class DeepgramTokenService {
           { userId, sessionId }
         );
       }
+
+      // Deepgram's answer is authoritative - it may clamp the requested lifetime, and a
+      // client told otherwise would keep reusing a token that is already dead, never
+      // refreshing it because our own expiry says there is no need.
+      const expiresIn = tokenResponse.expires_in ?? requestedTtlSeconds;
+      const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
       return {
         token,
